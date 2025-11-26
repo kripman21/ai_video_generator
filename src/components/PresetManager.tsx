@@ -25,22 +25,23 @@ const PresetManager: React.FC<PresetManagerProps> = ({ presets, updatePresets, c
                 setIsPanelOpen(false);
             }
         };
-        // FIX: Cast window to any to access document.
-        (window as any).document.addEventListener('mousedown', handleClickOutside);
-        return () => (window as any).document.removeEventListener('mousedown', handleClickOutside);
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
     const handleSavePreset = () => {
         if (!newPresetName.trim()) {
-            // FIX: Cast window to any to access alert.
-            (window as any).alert("Por favor, ingresa un nombre para el preset.");
-            return;
+            if (!newPresetName.trim()) {
+                alert("Por favor, ingresa un nombre para el preset.");
+                return;
+            }
         }
         if (presets.some(p => p.name === newPresetName.trim())) {
-             // FIX: Cast window to any to access confirm.
-             if (!(window as any).confirm(`Ya existe un preset con el nombre "${newPresetName.trim()}". ¿Deseas sobrescribirlo?`)) {
-                return;
-             }
+            if (presets.some(p => p.name === newPresetName.trim())) {
+                if (!confirm(`Ya existe un preset con el nombre "${newPresetName.trim()}". ¿Deseas sobrescribirlo?`)) {
+                    return;
+                }
+            }
         }
 
         const updatedPresets = presets.filter(p => p.name !== newPresetName.trim());
@@ -61,10 +62,9 @@ const PresetManager: React.FC<PresetManagerProps> = ({ presets, updatePresets, c
         setSubtitleConfig(preset.subtitleConfig);
         setIsPanelOpen(false);
     };
-    
+
     const handleDeletePreset = (presetName: string) => {
-        // FIX: Cast window to any to access confirm.
-        if ((window as any).confirm(`¿Estás seguro de que quieres eliminar el preset "${presetName}"?`)) {
+        if (confirm(`¿Estás seguro de que quieres eliminar el preset "${presetName}"?`)) {
             const newPresets = presets.filter(p => p.name !== presetName);
             updatePresets(newPresets);
         }
@@ -72,32 +72,32 @@ const PresetManager: React.FC<PresetManagerProps> = ({ presets, updatePresets, c
 
     const handleExportPresets = () => {
         if (presets.length === 0) {
-            (window as any).alert("No hay presets para exportar.");
+            alert("No hay presets para exportar.");
             return;
         }
         try {
             const jsonString = JSON.stringify(presets, null, 2);
             const blob = new Blob([jsonString], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
-            const a = (window as any).document.createElement('a');
+            const a = document.createElement('a');
             a.href = url;
             a.download = 'ai-video-style-presets.json';
-            (window as any).document.body.appendChild(a);
+            document.body.appendChild(a);
             a.click();
-            (window as any).document.body.removeChild(a);
+            document.body.removeChild(a);
             URL.revokeObjectURL(url);
         } catch (error) {
             console.error("Error exporting presets:", error);
-            (window as any).alert("Ocurrió un error al exportar los presets.");
+            alert("Ocurrió un error al exportar los presets.");
         }
     };
-    
+
     const handleImportClick = () => {
-        (importInputRef.current as any)?.click();
+        importInputRef.current?.click();
     };
 
     const handleImportFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = (event.target as any).files?.[0];
+        const file = event.target.files?.[0];
         if (!file) return;
 
         const reader = new FileReader();
@@ -105,7 +105,7 @@ const PresetManager: React.FC<PresetManagerProps> = ({ presets, updatePresets, c
             try {
                 const text = e.target?.result;
                 if (typeof text !== 'string') throw new Error("El contenido del archivo no es texto.");
-                
+
                 const importedPresets = JSON.parse(text);
 
                 if (!Array.isArray(importedPresets)) {
@@ -118,21 +118,21 @@ const PresetManager: React.FC<PresetManagerProps> = ({ presets, updatePresets, c
                         throw new Error("La estructura del preset importado es incorrecta.");
                     }
                 }
-                
+
                 const updatedPresetsMap = new Map<string, StylePreset>();
                 presets.forEach(p => updatedPresetsMap.set(p.name, p));
                 importedPresets.forEach((p: StylePreset) => updatedPresetsMap.set(p.name, p));
-                
+
                 const mergedPresets = Array.from(updatedPresetsMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-                
+
                 updatePresets(mergedPresets);
-                (window as any).alert(`${importedPresets.length} presets importados exitosamente.`);
+                alert(`${importedPresets.length} presets importados exitosamente.`);
             } catch (error) {
                 console.error("Error importing presets:", error);
-                (window as any).alert(`Error al importar presets: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+                alert(`Error al importar presets: ${error instanceof Error ? error.message : 'Error desconocido'}`);
             } finally {
                 if (event.target) {
-                    (event.target as any).value = '';
+                    event.target.value = '';
                 }
             }
         };
@@ -178,8 +178,7 @@ const PresetManager: React.FC<PresetManagerProps> = ({ presets, updatePresets, c
                             <input
                                 type="text"
                                 value={newPresetName}
-                                // FIX: Cast currentTarget to any to resolve TS error.
-                                onChange={(e) => setNewPresetName((e.currentTarget as any).value)}
+                                onChange={(e) => setNewPresetName(e.currentTarget.value)}
                                 placeholder="Nombre del preset..."
                                 className="w-full bg-gray-900 border border-gray-600 rounded-md p-2 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-purple-500"
                             />

@@ -22,8 +22,7 @@ const SceneCard: React.FC<SceneCardProps> = ({ scene, updateScene, pexelsApiKey,
 
   const handleFindVideo = async () => {
     if (!pexelsApiKey) {
-      // FIX: Cast `window` to `any` to access `alert` function, resolving TypeScript error.
-      (window as any).alert("La API key de Pexels no está configurada.");
+      alert("La API key de Pexels no está configurada.");
       return;
     }
     setIsSearching(true);
@@ -33,8 +32,7 @@ const SceneCard: React.FC<SceneCardProps> = ({ scene, updateScene, pexelsApiKey,
       const videos = await searchPexelsVideos(videoSearchQuery, pexelsApiKey);
       setSearchResults(videos);
     } catch (error) {
-      // FIX: Cast `window` to `any` to access `alert` function, resolving TypeScript error.
-      (window as any).alert((error as Error).message);
+      alert((error as Error).message);
       setIsModalOpen(false); // Close modal on error
     } finally {
       setIsSearching(false);
@@ -47,21 +45,19 @@ const SceneCard: React.FC<SceneCardProps> = ({ scene, updateScene, pexelsApiKey,
   };
 
   const handleScriptChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
-    // FIX: Cast currentTarget to 'any' to resolve incorrect TypeScript error.
-    updateScene({ ...scene, script: (e.currentTarget as any).value });
+    updateScene({ ...scene, script: e.currentTarget.value });
     // Note: In a real app, you'd want to debounce this and offer a "regenerate audio" button
   }
-  
+
   const handleDescriptionChange = (e: ChangeEvent<HTMLInputElement>) => {
-    // FIX: Cast currentTarget to 'any' to resolve incorrect TypeScript error.
-    setVideoSearchQuery((e.currentTarget as any).value);
-    updateScene({ ...scene, description: (e.currentTarget as any).value });
+    setVideoSearchQuery(e.currentTarget.value);
+    updateScene({ ...scene, description: e.currentTarget.value });
   };
 
 
   return (
     <>
-       <VideoSearchModal 
+      <VideoSearchModal
         isOpen={isModalOpen}
         isLoading={isSearching}
         videos={searchResults}
@@ -70,8 +66,8 @@ const SceneCard: React.FC<SceneCardProps> = ({ scene, updateScene, pexelsApiKey,
         onSelectVideo={handleSelectVideo}
       />
       <div className="bg-gray-700/50 rounded-lg p-4 flex flex-col md:flex-row gap-4 relative">
-        <button 
-          onClick={() => onDelete(scene.id)} 
+        <button
+          onClick={() => onDelete(scene.id)}
           className="absolute top-2 right-2 text-gray-400 hover:text-red-400 p-1 bg-gray-800/50 rounded-full z-20"
           aria-label="Delete scene"
         >
@@ -87,9 +83,8 @@ const SceneCard: React.FC<SceneCardProps> = ({ scene, updateScene, pexelsApiKey,
               <div className="w-full h-full flex items-center justify-center text-gray-500 text-sm">Sin Video</div>
             )}
             {scene.audioUrl && (
-              // FIX: Cast `window` to `any` to access `Audio` constructor, resolving TypeScript error.
-              <button onClick={() => new (window as any).Audio(scene.audioUrl!).play()} className="absolute bottom-2 right-2 bg-black bg-opacity-50 rounded-full p-2 text-white hover:bg-opacity-75">
-                <PlayIcon className="w-4 h-4"/>
+              <button onClick={() => new Audio(scene.audioUrl!).play()} className="absolute bottom-2 right-2 bg-black bg-opacity-50 rounded-full p-2 text-white hover:bg-opacity-75">
+                <PlayIcon className="w-4 h-4" />
               </button>
             )}
           </div>
@@ -97,7 +92,7 @@ const SceneCard: React.FC<SceneCardProps> = ({ scene, updateScene, pexelsApiKey,
         <div className="flex-grow">
           <div className="mb-2 relative">
             <div className="flex justify-between items-center mb-1">
-                <label className="text-xs text-gray-400">Guion (Subtítulos y Locución)</label>
+              <label className="text-xs text-gray-400">Guion (Subtítulos y Locución)</label>
             </div>
             <textarea
               ref={scriptTextAreaRef}
@@ -110,15 +105,15 @@ const SceneCard: React.FC<SceneCardProps> = ({ scene, updateScene, pexelsApiKey,
           <div>
             <label className="text-xs text-gray-400">Descripción para Búsqueda de Video</label>
             <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={videoSearchQuery}
-                  onChange={handleDescriptionChange}
-                  className="w-full bg-gray-800 border border-gray-600 rounded-md p-2 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-purple-500"
-                />
-                <button onClick={handleFindVideo} disabled={isSearching && isModalOpen} className="p-2 bg-purple-600 hover:bg-purple-700 rounded-md disabled:bg-gray-600">
-                  {isSearching && isModalOpen ? <LoadingIcon className="w-5 h-5 animate-spin"/> : <SearchIcon className="w-5 h-5"/>}
-                </button>
+              <input
+                type="text"
+                value={videoSearchQuery}
+                onChange={handleDescriptionChange}
+                className="w-full bg-gray-800 border border-gray-600 rounded-md p-2 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-purple-500"
+              />
+              <button onClick={handleFindVideo} disabled={isSearching && isModalOpen} className="p-2 bg-purple-600 hover:bg-purple-700 rounded-md disabled:bg-gray-600">
+                {isSearching && isModalOpen ? <LoadingIcon className="w-5 h-5 animate-spin" /> : <SearchIcon className="w-5 h-5" />}
+              </button>
             </div>
           </div>
         </div>

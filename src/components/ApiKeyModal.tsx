@@ -33,8 +33,7 @@ const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onClose, onSave, currentKey }
         <input
           type="text"
           value={apiKey}
-          // FIX: Cast currentTarget to 'any' to resolve incorrect TypeScript error.
-          onChange={(e) => setApiKey((e.currentTarget as any).value)}
+          onChange={(e) => setApiKey(e.currentTarget.value)}
           placeholder="Ingresa tu API key de Pexels"
           className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500"
         />
