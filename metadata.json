@@ -1,0 +1,5 @@
+{
+  "name": "AI Vertical Video Generator 2.5 Estable",
+  "description": "An application that uses AI to generate vertical videos from a script. It automatically suggests stock videos, generates voiceovers, and adds subtitles for each scene.",
+  "requestFramePermissions": []
+}
