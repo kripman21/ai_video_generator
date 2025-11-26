@@ -37,16 +37,16 @@ const loadImage = (url: string): Promise<any> => {
 
 const drawSceneOverlay = (ctx: any, config: CoverSceneConfig | ClosingSceneConfig, _subtitleConfig: SubtitleConfig, logoImage: any | null, backgroundImage: any | null = null) => {
     if (!config.enabled) return;
-    
+
     ctx.save();
-    
+
     ctx.fillStyle = config.backgroundColor;
     ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
 
     if (backgroundImage && 'backgroundImageUrl' in config && config.backgroundImageUrl) {
         const imgRatio = backgroundImage.width / backgroundImage.height;
         const canvasRatio = ctx.canvas.width / ctx.canvas.height;
-        
+
         let sx = 0, sy = 0, sWidth = backgroundImage.width, sHeight = backgroundImage.height;
 
         if (imgRatio > canvasRatio) { // Image is wider than the canvas, crop width
@@ -56,16 +56,16 @@ const drawSceneOverlay = (ctx: any, config: CoverSceneConfig | ClosingSceneConfi
             sHeight = backgroundImage.width / canvasRatio;
             sy = (backgroundImage.height - sHeight) / 2;
         }
-        
+
         ctx.drawImage(backgroundImage, sx, sy, sWidth, sHeight, 0, 0, ctx.canvas.width, ctx.canvas.height);
     }
-     if ('overlayEnabled' in config && config.overlayEnabled) {
+    if ('overlayEnabled' in config && config.overlayEnabled) {
         ctx.fillStyle = config.overlayColor;
         ctx.globalAlpha = config.overlayOpacity;
         ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
         ctx.globalAlpha = 1.0;
     }
-    
+
     const fontWeight = config.fontWeight || 'bold';
     const fontFamily = config.fontFamily || 'sans-serif';
 
@@ -95,7 +95,7 @@ const drawSceneOverlay = (ctx: any, config: CoverSceneConfig | ClosingSceneConfi
             }
             if (currentLine.length > 0) lines.push(currentLine);
         }
-        
+
         // 3. Draw the lines
         const originalAlign = ctx.textAlign;
         lines.forEach((line, index) => {
@@ -111,9 +111,9 @@ const drawSceneOverlay = (ctx: any, config: CoverSceneConfig | ClosingSceneConfi
             } else { // left
                 startX = x;
             }
-            
+
             ctx.textAlign = 'left';
-            
+
             let currentX = startX;
             line.forEach((token, tokenIndex) => {
                 const textToDraw = token.text + (tokenIndex < line.length - 1 ? ' ' : '');
@@ -136,37 +136,37 @@ const drawSceneOverlay = (ctx: any, config: CoverSceneConfig | ClosingSceneConfi
     if (config.textPosition === 'above') {
         contentStack.reverse();
     }
-    
-    const logoHeight = (logoImage && config.logoUrl && (!('logoEnabled' in config) || config.logoEnabled)) 
-      ? (ctx.canvas.width * (config.logoSize / 100)) / (logoImage.width / logoImage.height) 
-      : 0;
-      
+
+    const logoHeight = (logoImage && config.logoUrl && (!('logoEnabled' in config) || config.logoEnabled))
+        ? (ctx.canvas.width * (config.logoSize / 100)) / (logoImage.width / logoImage.height)
+        : 0;
+
     ctx.font = `${fontWeight} 50px ${fontFamily}`; // Set font before measuring text
     // A rough estimation for height calculation, actual drawing handles wrapping.
-    const textHeight = config.textEnabled 
+    const textHeight = config.textEnabled
         ? Math.ceil(ctx.measureText(config.text.replace(/\*/g, '')).width / (ctx.canvas.width - 100)) * 60
         : 0;
 
     const totalContentHeight = logoHeight + textHeight + (logoHeight > 0 && textHeight > 0 ? 20 : 0);
     let currentY = (ctx.canvas.height - totalContentHeight) / 2;
-    
+
     contentStack.forEach(item => {
-         if (item.type === 'logo' && item.image) {
+        if (item.type === 'logo' && item.image) {
             const currentLogoHeight = (ctx.canvas.width * (config.logoSize / 100)) / (item.image.width / item.image.height);
             const logoX = (ctx.canvas.width - (ctx.canvas.width * (config.logoSize / 100))) / 2;
             ctx.drawImage(item.image, logoX, currentY, ctx.canvas.width * (config.logoSize / 100), currentLogoHeight);
             currentY += currentLogoHeight + 20;
-         }
-         if (item.type === 'text') {
+        }
+        if (item.type === 'text') {
             ctx.font = `${fontWeight} 50px ${fontFamily}`;
             ctx.textAlign = config.textAlign;
             ctx.textBaseline = 'top';
             const textX = { 'left': 50, 'center': ctx.canvas.width / 2, 'right': ctx.canvas.width - 50 }[config.textAlign];
-            
+
             drawHighlightedText(config.text, textX, currentY, ctx.canvas.width - 100);
-         }
+        }
     });
-    
+
     ctx.restore();
 }
 
@@ -176,7 +176,7 @@ const drawSceneOverlay = (ctx: any, config: CoverSceneConfig | ClosingSceneConfi
  * required for each canvas draw, eliminating timing-related glitches, stutters,
  * and incorrect transitions. It ensures a perfectly smooth final output.
  */
-export async function renderVideo(
+async function renderVideoMainThread(
     scenes: Scene[],
     backgroundMusic: BackgroundMusic | null,
     coverSceneConfig: CoverSceneConfig,
@@ -184,7 +184,7 @@ export async function renderVideo(
     subtitleConfig: SubtitleConfig,
     onProgress: (progress: number, message: string) => void
 ): Promise<void> {
-    
+
     let audioContext: any = null;
     const videoElements: any[] = [];
     let mediaRecorder: any = null;
@@ -216,7 +216,7 @@ export async function renderVideo(
         // 2. Setup Audio
         audioContext = new ((window as any).AudioContext || (window as any).webkitAudioContext)();
         const destinationNode = audioContext.createMediaStreamDestination();
-        
+
         if (backgroundMusic) {
             try {
                 const response = await fetch(backgroundMusic.url);
@@ -229,9 +229,9 @@ export async function renderVideo(
                 bgMusicGainNode.gain.value = backgroundMusic.volume;
                 bgMusicSource.connect(bgMusicGainNode);
                 bgMusicGainNode.connect(destinationNode);
-            } catch(e) { console.error("Failed to load background music", e); }
+            } catch (e) { console.error("Failed to load background music", e); }
         }
-        
+
         const ttsAudioElement = new (window as any).Audio();
         ttsAudioElement.crossOrigin = 'anonymous';
         const ttsSourceNode = audioContext.createMediaElementSource(ttsAudioElement);
@@ -242,24 +242,24 @@ export async function renderVideo(
             const video = (window as any).document.createElement('video');
             video.crossOrigin = 'anonymous';
             video.muted = true;
-            video.playsInline = true; 
+            video.playsInline = true;
             (video as any).style.position = 'fixed'; (video as any).style.left = '-9999px'; (video as any).style.top = '-9999px';
             (window as any).document.body.appendChild(video);
             videoElements.push(video);
             return video;
         };
-        
+
         const drawVideoToCanvas = (context: any, videoEl: any) => {
-             if (videoEl && videoEl.videoWidth > 0 && videoEl.readyState > 2) {
+            if (videoEl && videoEl.videoWidth > 0 && videoEl.readyState > 2) {
                 const videoRatio = videoEl.videoWidth / videoEl.videoHeight;
                 const canvasRatio = WIDTH / HEIGHT;
                 let w = WIDTH, h = HEIGHT, x = 0, y = 0;
-                if (videoRatio > canvasRatio) { h = w / videoRatio; y = (HEIGHT - h) / 2; } 
+                if (videoRatio > canvasRatio) { h = w / videoRatio; y = (HEIGHT - h) / 2; }
                 else { w = h * videoRatio; x = (WIDTH - w) / 2; }
                 context.drawImage(videoEl, x, y, w, h);
             }
         };
-        
+
         // 4. Setup MediaRecorder
         const canvasStream = canvas.captureStream(0); // must be 0 for requestFrame
         videoTrack = canvasStream.getVideoTracks()[0];
@@ -281,7 +281,7 @@ export async function renderVideo(
                 videoEl.currentTime = time;
             });
         };
-        
+
         const loadVideo = (videoEl: any, url: string): Promise<void> => {
             return new Promise((resolve, reject) => {
                 if (!url) return resolve(); // Resolve if no video URL
@@ -294,9 +294,9 @@ export async function renderVideo(
 
         const drawSubtitles = (scene: Scene, alpha: number = 1.0) => {
             if (!scene || !scene.script || !ctx || alpha <= 0) return;
-        
+
             ctx.save();
-        
+
             const applyAlphaToHex = (hex: string, a: number) => {
                 if (!hex.startsWith('#')) return hex;
                 const r = parseInt(hex.slice(1, 3), 16);
@@ -304,7 +304,7 @@ export async function renderVideo(
                 const b = parseInt(hex.slice(5, 7), 16);
                 return `rgba(${r}, ${g}, ${b}, ${a})`;
             };
-        
+
             ctx.font = `${subtitleConfig.fontWeight} ${subtitleConfig.fontSize}px ${subtitleConfig.fontFamily}`;
             if (subtitleConfig.shadowConfig.enabled) {
                 ctx.shadowColor = applyAlphaToHex(subtitleConfig.shadowConfig.color, alpha);
@@ -312,7 +312,7 @@ export async function renderVideo(
                 ctx.shadowOffsetY = subtitleConfig.shadowConfig.offsetY;
                 ctx.shadowBlur = subtitleConfig.shadowConfig.blur;
             }
-        
+
             // 1. Tokenize
             const tokens: { text: string, isHighlight: boolean }[] = [];
             scene.script.split(/(\*.*?\*)/g).filter(Boolean).forEach(part => {
@@ -320,7 +320,7 @@ export async function renderVideo(
                 const content = isHighlight ? part.slice(1, -1) : part;
                 content.split(' ').filter(Boolean).forEach(word => tokens.push({ text: word, isHighlight }));
             });
-        
+
             // 2. Wrap
             const maxWidth = WIDTH - 100;
             const lines: { text: string, isHighlight: boolean }[][] = [];
@@ -341,22 +341,22 @@ export async function renderVideo(
                 ctx.restore();
                 return;
             }
-        
+
             // 3. Draw
             const lineHeight = subtitleConfig.fontSize * 1.2;
             const totalTextHeight = lines.length * lineHeight;
             let startY;
-            if (subtitleConfig.verticalAlign === 'top') { ctx.textBaseline = 'top'; startY = 50; } 
-            else if (subtitleConfig.verticalAlign === 'middle') { ctx.textBaseline = 'top'; startY = (HEIGHT / 2) - (totalTextHeight / 2); } 
+            if (subtitleConfig.verticalAlign === 'top') { ctx.textBaseline = 'top'; startY = 50; }
+            else if (subtitleConfig.verticalAlign === 'middle') { ctx.textBaseline = 'top'; startY = (HEIGHT / 2) - (totalTextHeight / 2); }
             else { ctx.textBaseline = 'bottom'; startY = HEIGHT - 50 - totalTextHeight + lineHeight; }
-            
+
             const originalAlign = subtitleConfig.textAlign;
-        
+
             lines.forEach((line, i) => {
                 const lineY = startY + (i * lineHeight);
                 const lineText = line.map(t => t.text).join(' ');
                 const totalLineWidth = ctx.measureText(lineText).width;
-                
+
                 let currentX;
                 if (originalAlign === 'center') {
                     currentX = (WIDTH - totalLineWidth) / 2;
@@ -365,7 +365,7 @@ export async function renderVideo(
                 } else {
                     currentX = 50;
                 }
-        
+
                 line.forEach((token, tokenIndex) => {
                     const textToDraw = token.text + (tokenIndex < line.length - 1 ? ' ' : '');
                     ctx.fillStyle = applyAlphaToHex(token.isHighlight ? subtitleConfig.highlightTextColor : subtitleConfig.textColor, alpha);
@@ -373,10 +373,10 @@ export async function renderVideo(
                     currentX += ctx.measureText(textToDraw).width;
                 });
             });
-        
+
             ctx.restore();
         };
-        
+
         // 5. Build Timeline
         const timeline: any[] = [];
         let accumulatedTime = 0;
@@ -388,7 +388,7 @@ export async function renderVideo(
             timeline.push({ type: 'scene', scene, duration: scene.duration, index: i });
             accumulatedTime += scene.duration;
         });
-         if (closingSceneConfig.enabled) {
+        if (closingSceneConfig.enabled) {
             timeline.push({ type: 'closing', duration: CLOSING_DURATION });
             accumulatedTime += CLOSING_DURATION;
         }
@@ -426,7 +426,7 @@ export async function renderVideo(
 
         let currentTime = 0;
         let timeInSegment = 0;
-        
+
         for (const segment of timeline) {
             ttsAudioElement.pause();
             if (segment.type === 'scene' && segment.scene.audioUrl) {
@@ -439,11 +439,11 @@ export async function renderVideo(
             for (let i = 0; i < segmentFrames; i++) {
                 timeInSegment = i * FRAME_DURATION_MS;
                 const progress = 20 + (currentTime / totalDuration) * 75;
-                onProgress(progress, `Renderizando... ${Math.round(currentTime/1000)}s / ${Math.round(totalDuration/1000)}s`);
+                onProgress(progress, `Renderizando... ${Math.round(currentTime / 1000)}s / ${Math.round(totalDuration / 1000)}s`);
 
                 ctx.fillStyle = 'black';
                 ctx.fillRect(0, 0, WIDTH, HEIGHT);
-                
+
                 if (segment.type === 'cover') {
                     drawSceneOverlay(ctx, coverSceneConfig, subtitleConfig, coverLogoImage, coverBackgroundImage);
                 } else if (segment.type === 'closing') {
@@ -471,7 +471,7 @@ export async function renderVideo(
                             ctx.globalAlpha = transitionProgress;
                             drawVideoToCanvas(ctx, currentVideoEl);
                         }
-                        
+
                         ctx.globalAlpha = 1.0; // Reset alpha
 
                         // 3. Draw subtitles for both scenes
@@ -489,15 +489,15 @@ export async function renderVideo(
                         drawSubtitles(segment.scene, 1.0);
                     }
                 }
-                
+
                 (videoTrack as any).requestFrame();
                 await new Promise(res => setTimeout(res, 25)); // Yield to event loop
                 currentTime += FRAME_DURATION_MS;
             }
         }
-        
+
         onProgress(95, 'Finalizando grabación...');
-        if(mediaRecorder.state === 'recording') mediaRecorder.stop();
+        if (mediaRecorder.state === 'recording') mediaRecorder.stop();
         await recorderStopped;
 
         onProgress(100, 'Video listo para descargar...');
@@ -516,5 +516,75 @@ export async function renderVideo(
         audioContext?.close().catch((e: any) => console.error("Error closing audio context", e));
         videoElements.forEach(v => (v as any).parentNode?.removeChild(v));
         imageCache.clear();
+    }
+}
+
+async function renderVideoWithWorker(
+    scenes: Scene[],
+    backgroundMusic: BackgroundMusic | null,
+    coverSceneConfig: CoverSceneConfig,
+    closingSceneConfig: ClosingSceneConfig,
+    subtitleConfig: SubtitleConfig,
+    onProgress: (progress: number, message: string) => void
+): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const worker = new Worker(new URL('../workers/render.worker.ts', import.meta.url), { type: 'module' });
+
+        const canvas = new OffscreenCanvas(720, 1280);
+
+        worker.onmessage = (event) => {
+            const { type, progress, message, error } = event.data;
+            if (type === 'progress') {
+                onProgress(progress, message);
+            } else if (type === 'complete') {
+                worker.terminate();
+                resolve();
+            } else if (type === 'error') {
+                worker.terminate();
+                reject(new Error(error));
+            }
+        };
+
+        worker.onerror = (error) => {
+            worker.terminate();
+            reject(error);
+        };
+
+        worker.postMessage({
+            type: 'start',
+            payload: {
+                scenes,
+                backgroundMusic,
+                coverSceneConfig,
+                closingSceneConfig,
+                subtitleConfig
+            },
+            canvas
+        }, [canvas]);
+    });
+}
+
+export async function renderVideo(
+    scenes: Scene[],
+    backgroundMusic: BackgroundMusic | null,
+    coverSceneConfig: CoverSceneConfig,
+    closingSceneConfig: ClosingSceneConfig,
+    subtitleConfig: SubtitleConfig,
+    onProgress: (progress: number, message: string) => void
+): Promise<void> {
+    const supportsOffscreen = 'OffscreenCanvas' in window && 'VideoDecoder' in window;
+
+    if (supportsOffscreen) {
+        console.log("Modo: Worker");
+        try {
+            return await renderVideoWithWorker(scenes, backgroundMusic, coverSceneConfig, closingSceneConfig, subtitleConfig, onProgress);
+        } catch (e) {
+            console.error("Worker rendering failed, falling back to main thread", e);
+            console.log("Modo: Main Thread (Fallback)");
+            return renderVideoMainThread(scenes, backgroundMusic, coverSceneConfig, closingSceneConfig, subtitleConfig, onProgress);
+        }
+    } else {
+        console.log("Modo: Main Thread");
+        return renderVideoMainThread(scenes, backgroundMusic, coverSceneConfig, closingSceneConfig, subtitleConfig, onProgress);
     }
 }

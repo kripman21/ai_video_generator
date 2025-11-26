@@ -1,0 +1,414 @@
+import { Scene, CoverSceneConfig, ClosingSceneConfig, SubtitleConfig, BackgroundMusic } from '../types';
+import { MP4Demuxer } from '../utils/MP4Demuxer';
+import { buildTimeline, TimelineSegment, findBestVideoUrl } from '../utils/renderUtils';
+
+export interface RenderMessage {
+    type: 'start';
+    canvas: OffscreenCanvas;
+    scenes: Scene[];
+    backgroundMusic: BackgroundMusic | null;
+    coverConfig: CoverSceneConfig;
+    closingConfig: ClosingSceneConfig;
+    subtitleConfig: SubtitleConfig;
+}
+
+const WIDTH = 720;
+const HEIGHT = 1280;
+const FRAME_RATE = 30;
+const FRAME_DURATION_MS = 1000 / FRAME_RATE;
+
+let canvas: OffscreenCanvas | null = null;
+let ctx: OffscreenCanvasRenderingContext2D | null = null;
+let videoDecoder: VideoDecoder | null = null;
+let currentFrame: VideoFrame | null = null;
+
+// Cache for loaded resources
+const imageCache = new Map<string, ImageBitmap>();
+const videoBuffer = new Map<string, VideoFrame[]>(); // Simple buffer for decoded frames
+
+// Helper to load images
+const loadImage = async (url: string): Promise<ImageBitmap | null> => {
+    try {
+        const response = await fetch(url);
+        const blob = await response.blob();
+        return await createImageBitmap(blob);
+    } catch (e) {
+        console.error(`Failed to load image: ${url}`, e);
+        return null;
+    }
+};
+
+// Helper to decode video entirely (simplified for this use case)
+// In a production app, you'd stream this. Here we'll try to decode needed segments.
+const decodeVideo = async (url: string, durationMs: number): Promise<VideoFrame[]> => {
+    const frames: VideoFrame[] = [];
+    let decoder: VideoDecoder | null = null;
+
+    const decodePromise = new Promise<void>((resolve, reject) => {
+        decoder = new VideoDecoder({
+            output: (frame) => {
+                frames.push(frame);
+            },
+            error: (e) => {
+                console.error("Decoder error", e);
+                reject(e);
+            }
+        });
+
+        new MP4Demuxer(url,
+            (config) => {
+                decoder?.configure(config);
+            },
+            (chunk) => {
+                decoder?.decode(chunk);
+            },
+            (status) => {
+                // console.log("Demuxer status:", status);
+            }
+        );
+
+        // A rough way to wait for decoding. In reality, MP4Demuxer should signal end of stream.
+        // For this MVP, we'll wait a bit or until we have enough frames.
+        // This is a simplification.
+        setTimeout(() => {
+            resolve();
+        }, 5000 + durationMs); // Wait enough time for download + decode
+    });
+
+    await decodePromise;
+    await decoder?.flush();
+    decoder?.close();
+    return frames;
+};
+
+
+const drawSceneOverlay = (ctx: OffscreenCanvasRenderingContext2D, config: CoverSceneConfig | ClosingSceneConfig, subtitleConfig: SubtitleConfig, logoImage: ImageBitmap | null, backgroundImage: ImageBitmap | null = null) => {
+    if (!config.enabled) return;
+
+    ctx.save();
+
+    ctx.fillStyle = config.backgroundColor;
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+    if (backgroundImage && 'backgroundImageUrl' in config && config.backgroundImageUrl) {
+        const imgRatio = backgroundImage.width / backgroundImage.height;
+        const canvasRatio = WIDTH / HEIGHT;
+
+        let sx = 0, sy = 0, sWidth = backgroundImage.width, sHeight = backgroundImage.height;
+
+        if (imgRatio > canvasRatio) {
+            sWidth = backgroundImage.height * canvasRatio;
+            sx = (backgroundImage.width - sWidth) / 2;
+        } else {
+            sHeight = backgroundImage.width / canvasRatio;
+            sy = (backgroundImage.height - sHeight) / 2;
+        }
+
+        ctx.drawImage(backgroundImage, sx, sy, sWidth, sHeight, 0, 0, WIDTH, HEIGHT);
+    }
+    if ('overlayEnabled' in config && config.overlayEnabled) {
+        ctx.fillStyle = config.overlayColor;
+        ctx.globalAlpha = config.overlayOpacity;
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
+        ctx.globalAlpha = 1.0;
+    }
+
+    const fontWeight = config.fontWeight || 'bold';
+    const fontFamily = config.fontFamily || 'sans-serif';
+
+    const drawHighlightedText = (text: string, x: number, y: number, maxWidth: number) => {
+        const lineHeight = 60;
+
+        const tokens: { text: string, isHighlight: boolean }[] = [];
+        text.split(/(\*.*?\*)/g).filter(Boolean).forEach(part => {
+            const isHighlight = part.startsWith('*') && part.endsWith('*');
+            const content = isHighlight ? part.slice(1, -1) : part;
+            content.split(' ').filter(Boolean).forEach(word => tokens.push({ text: word, isHighlight }));
+        });
+
+        const lines: { text: string, isHighlight: boolean }[][] = [];
+        if (tokens.length > 0) {
+            let currentLine: { text: string, isHighlight: boolean }[] = [];
+            for (const token of tokens) {
+                const testLineText = [...currentLine, token].map(t => t.text).join(' ');
+                if (ctx.measureText(testLineText).width > maxWidth && currentLine.length > 0) {
+                    lines.push(currentLine);
+                    currentLine = [token];
+                } else {
+                    currentLine.push(token);
+                }
+            }
+            if (currentLine.length > 0) lines.push(currentLine);
+        }
+
+        const originalAlign = ctx.textAlign;
+        lines.forEach((line, index) => {
+            const lineY = y + (index * lineHeight);
+            const lineText = line.map(t => t.text).join(' ');
+            const totalLineWidth = ctx.measureText(lineText).width;
+
+            let startX;
+            if (originalAlign === 'center') {
+                startX = x - totalLineWidth / 2;
+            } else if (originalAlign === 'right') {
+                startX = x - totalLineWidth;
+            } else { // left
+                startX = x;
+            }
+
+            ctx.textAlign = 'left';
+
+            let currentX = startX;
+            line.forEach((token, tokenIndex) => {
+                const textToDraw = token.text + (tokenIndex < line.length - 1 ? ' ' : '');
+                ctx.fillStyle = token.isHighlight ? config.highlightTextColor : config.textColor;
+                ctx.fillText(textToDraw, currentX, lineY);
+                currentX += ctx.measureText(textToDraw).width;
+            });
+        });
+
+        ctx.textAlign = originalAlign;
+    };
+
+    const contentStack = [];
+    if (config.logoUrl && (!('logoEnabled' in config) || config.logoEnabled)) {
+        contentStack.push({ type: 'logo', image: logoImage });
+    }
+    if (config.textEnabled) {
+        contentStack.push({ type: 'text' });
+    }
+    if (config.textPosition === 'above') {
+        contentStack.reverse();
+    }
+
+    const logoHeight = (logoImage && config.logoUrl && (!('logoEnabled' in config) || config.logoEnabled))
+        ? (WIDTH * (config.logoSize / 100)) / (logoImage.width / logoImage.height)
+        : 0;
+
+    ctx.font = `${fontWeight} 50px ${fontFamily}`;
+    const textHeight = config.textEnabled
+        ? Math.ceil(ctx.measureText(config.text.replace(/\*/g, '')).width / (WIDTH - 100)) * 60
+        : 0;
+
+    const totalContentHeight = logoHeight + textHeight + (logoHeight > 0 && textHeight > 0 ? 20 : 0);
+    let currentY = (HEIGHT - totalContentHeight) / 2;
+
+    contentStack.forEach(item => {
+        if (item.type === 'logo' && item.image) {
+            const currentLogoHeight = (WIDTH * (config.logoSize / 100)) / (item.image.width / item.image.height);
+            const logoX = (WIDTH - (WIDTH * (config.logoSize / 100))) / 2;
+            ctx.drawImage(item.image, logoX, currentY, WIDTH * (config.logoSize / 100), currentLogoHeight);
+            currentY += currentLogoHeight + 20;
+        }
+        if (item.type === 'text') {
+            ctx.font = `${fontWeight} 50px ${fontFamily}`;
+            ctx.textAlign = config.textAlign;
+            ctx.textBaseline = 'top';
+            const textX = { 'left': 50, 'center': WIDTH / 2, 'right': WIDTH - 50 }[config.textAlign];
+
+            drawHighlightedText(config.text, textX, currentY, WIDTH - 100);
+        }
+    });
+
+    ctx.restore();
+}
+
+const drawSubtitles = (ctx: OffscreenCanvasRenderingContext2D, scene: Scene, subtitleConfig: SubtitleConfig, alpha: number = 1.0) => {
+    if (!scene || !scene.script || alpha <= 0) return;
+
+    ctx.save();
+
+    const applyAlphaToHex = (hex: string, a: number) => {
+        if (!hex.startsWith('#')) return hex;
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        return `rgba(${r}, ${g}, ${b}, ${a})`;
+    };
+
+    ctx.font = `${subtitleConfig.fontWeight} ${subtitleConfig.fontSize}px ${subtitleConfig.fontFamily}`;
+    if (subtitleConfig.shadowConfig.enabled) {
+        ctx.shadowColor = applyAlphaToHex(subtitleConfig.shadowConfig.color, alpha);
+        ctx.shadowOffsetX = subtitleConfig.shadowConfig.offsetX;
+        ctx.shadowOffsetY = subtitleConfig.shadowConfig.offsetY;
+        ctx.shadowBlur = subtitleConfig.shadowConfig.blur;
+    }
+
+    const tokens: { text: string, isHighlight: boolean }[] = [];
+    scene.script.split(/(\*.*?\*)/g).filter(Boolean).forEach(part => {
+        const isHighlight = part.startsWith('*') && part.endsWith('*');
+        const content = isHighlight ? part.slice(1, -1) : part;
+        content.split(' ').filter(Boolean).forEach(word => tokens.push({ text: word, isHighlight }));
+    });
+
+    const maxWidth = WIDTH - 100;
+    const lines: { text: string, isHighlight: boolean }[][] = [];
+    if (tokens.length > 0) {
+        let currentLine: { text: string, isHighlight: boolean }[] = [];
+        for (const token of tokens) {
+            const testLineText = [...currentLine, token].map(t => t.text).join(' ');
+            if (ctx.measureText(testLineText).width > maxWidth && currentLine.length > 0) {
+                lines.push(currentLine);
+                currentLine = [token];
+            } else {
+                currentLine.push(token);
+            }
+        }
+        lines.push(currentLine);
+    }
+    if (lines.length === 0) {
+        ctx.restore();
+        return;
+    }
+
+    const lineHeight = subtitleConfig.fontSize * 1.2;
+    const totalTextHeight = lines.length * lineHeight;
+    let startY;
+    if (subtitleConfig.verticalAlign === 'top') { ctx.textBaseline = 'top'; startY = 50; }
+    else if (subtitleConfig.verticalAlign === 'middle') { ctx.textBaseline = 'top'; startY = (HEIGHT / 2) - (totalTextHeight / 2); }
+    else { ctx.textBaseline = 'bottom'; startY = HEIGHT - 50 - totalTextHeight + lineHeight; }
+
+    const originalAlign = subtitleConfig.textAlign;
+
+    lines.forEach((line, i) => {
+        const lineY = startY + (i * lineHeight);
+        const lineText = line.map(t => t.text).join(' ');
+        const totalLineWidth = ctx.measureText(lineText).width;
+
+        let currentX;
+        if (originalAlign === 'center') {
+            currentX = (WIDTH - totalLineWidth) / 2;
+        } else if (originalAlign === 'right') {
+            currentX = WIDTH - 50 - totalLineWidth;
+        } else {
+            currentX = 50;
+        }
+
+        line.forEach((token, tokenIndex) => {
+            const textToDraw = token.text + (tokenIndex < line.length - 1 ? ' ' : '');
+            ctx.fillStyle = applyAlphaToHex(token.isHighlight ? subtitleConfig.highlightTextColor : subtitleConfig.textColor, alpha);
+            ctx.fillText(textToDraw, currentX, lineY);
+            currentX += ctx.measureText(textToDraw).width;
+        });
+    });
+
+    ctx.restore();
+};
+
+
+self.onmessage = async (event: MessageEvent<RenderMessage>) => {
+    if (event.data.type === 'start') {
+        const { canvas: offscreenCanvas, scenes, coverConfig, closingConfig, subtitleConfig } = event.data;
+        canvas = offscreenCanvas;
+        ctx = canvas.getContext('2d', { alpha: false }) as OffscreenCanvasRenderingContext2D;
+
+        if (!ctx) {
+            console.error("Failed to get 2D context");
+            return;
+        }
+
+        // 1. Preload Resources
+        self.postMessage({ type: 'progress', value: 5, message: 'Cargando recursos...' });
+
+        if (coverConfig.enabled) {
+            if (coverConfig.logoUrl) await loadImage(coverConfig.logoUrl).then(img => img && imageCache.set(coverConfig.logoUrl!, img));
+            if (coverConfig.backgroundImageUrl) await loadImage(coverConfig.backgroundImageUrl).then(img => img && imageCache.set(coverConfig.backgroundImageUrl!, img));
+        }
+        if (closingConfig.enabled && closingConfig.logoUrl) {
+            await loadImage(closingConfig.logoUrl).then(img => img && imageCache.set(closingConfig.logoUrl!, img));
+        }
+
+        // 2. Decode Videos (Simplified: Fetch and decode all needed videos)
+        // In a real app, you'd manage memory better.
+        self.postMessage({ type: 'progress', value: 15, message: 'Procesando videos...' });
+        const uniqueVideos = [...new Set(scenes.map(s => findBestVideoUrl(s.video)).filter(Boolean))];
+
+        for (const url of uniqueVideos) {
+            // We need to know duration to know how much to decode, but for now let's try to decode a chunk
+            // This part is tricky without proper streaming. We'll rely on the MP4Demuxer to pull what it can.
+            // For this MVP, we might just decode the first few seconds if we can't get full duration easily.
+            // Actually, let's assume we decode enough.
+            const frames = await decodeVideo(url, 5000); // Try to decode 5s buffer
+            videoBuffer.set(url, frames);
+        }
+
+        // 3. Build Timeline
+        const timeline = buildTimeline(scenes, coverConfig, closingConfig);
+        const totalDuration = timeline.reduce((acc, seg) => acc + seg.duration, 0);
+
+        // 4. Start Recording
+        const stream = canvas.captureStream(FRAME_RATE);
+        const mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp9' });
+        const chunks: Blob[] = [];
+        mediaRecorder.ondataavailable = (e) => e.data.size > 0 && chunks.push(e.data);
+        mediaRecorder.start();
+
+        // 5. Render Loop
+        let currentTime = 0;
+
+        for (const segment of timeline) {
+            const segmentFrames = Math.round(segment.duration / FRAME_DURATION_MS);
+
+            for (let i = 0; i < segmentFrames; i++) {
+                const timeInSegment = i * FRAME_DURATION_MS;
+                const progress = 20 + (currentTime / totalDuration) * 80;
+
+                if (i % 10 === 0) {
+                    self.postMessage({ type: 'progress', value: progress, message: `Renderizando... ${Math.round(currentTime / 1000)}s` });
+                }
+
+                // Clear
+                ctx.fillStyle = 'black';
+                ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+                if (segment.type === 'cover') {
+                    const logo = coverConfig.logoUrl ? imageCache.get(coverConfig.logoUrl) || null : null;
+                    const bg = coverConfig.backgroundImageUrl ? imageCache.get(coverConfig.backgroundImageUrl) || null : null;
+                    drawSceneOverlay(ctx, coverConfig, subtitleConfig, logo, bg);
+                } else if (segment.type === 'closing') {
+                    const logo = closingConfig.logoUrl ? imageCache.get(closingConfig.logoUrl) || null : null;
+                    drawSceneOverlay(ctx, closingConfig, subtitleConfig, logo);
+                } else if (segment.type === 'scene' && segment.scene) {
+                    const videoUrl = findBestVideoUrl(segment.scene.video);
+                    const frames = videoBuffer.get(videoUrl);
+
+                    if (frames && frames.length > 0) {
+                        // Find closest frame
+                        // This is a naive lookup. Ideally, frames are timestamped.
+                        // Assuming 30fps input for simplicity or just taking frame by index ratio
+                        const frameIndex = Math.floor((timeInSegment / 1000) * 30);
+                        const frame = frames[Math.min(frameIndex, frames.length - 1)];
+
+                        if (frame) {
+                            const videoRatio = frame.displayWidth / frame.displayHeight;
+                            const canvasRatio = WIDTH / HEIGHT;
+                            let w = WIDTH, h = HEIGHT, x = 0, y = 0;
+                            if (videoRatio > canvasRatio) { h = w / videoRatio; y = (HEIGHT - h) / 2; }
+                            else { w = h * videoRatio; x = (WIDTH - w) / 2; }
+
+                            ctx.drawImage(frame, x, y, w, h);
+                        }
+                    }
+
+                    drawSubtitles(ctx, segment.scene, subtitleConfig);
+                }
+
+                // Wait for next frame tick
+                await new Promise(resolve => setTimeout(resolve, 0));
+                currentTime += FRAME_DURATION_MS;
+            }
+        }
+
+        mediaRecorder.stop();
+        await new Promise(resolve => mediaRecorder.onstop = resolve);
+
+        const blob = new Blob(chunks, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+
+        self.postMessage({ type: 'complete', url });
+
+        // Cleanup
+        videoBuffer.forEach(frames => frames.forEach(f => f.close()));
+        videoBuffer.clear();
+    }
+};
