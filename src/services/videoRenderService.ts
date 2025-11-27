@@ -552,13 +552,11 @@ async function renderVideoWithWorker(
 
         worker.postMessage({
             type: 'start',
-            payload: {
-                scenes,
-                backgroundMusic,
-                coverSceneConfig,
-                closingSceneConfig,
-                subtitleConfig
-            },
+            scenes,
+            backgroundMusic,
+            coverConfig: coverSceneConfig,
+            closingConfig: closingSceneConfig,
+            subtitleConfig,
             canvas
         }, [canvas]);
     });

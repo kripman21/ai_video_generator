@@ -1,6 +1,7 @@
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { Toaster } from 'sonner';
 import App from './App';
 
 const rootElement = document.getElementById('root');
@@ -12,5 +13,6 @@ const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
     <App />
+    <Toaster position="top-center" richColors theme="dark" />
   </React.StrictMode>
 );

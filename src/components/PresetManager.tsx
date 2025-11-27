@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { toast } from 'sonner';
 import { CoverSceneConfig, StylePreset, ClosingSceneConfig, SubtitleConfig } from '../types';
 import { BookmarkSquareIcon, ChevronDownIcon, TrashIcon } from './Icons';
 
@@ -31,29 +32,35 @@ const PresetManager: React.FC<PresetManagerProps> = ({ presets, updatePresets, c
 
     const handleSavePreset = () => {
         if (!newPresetName.trim()) {
-            if (!newPresetName.trim()) {
-                alert("Por favor, ingresa un nombre para el preset.");
-                return;
-            }
-        }
-        if (presets.some(p => p.name === newPresetName.trim())) {
-            if (presets.some(p => p.name === newPresetName.trim())) {
-                if (!confirm(`Ya existe un preset con el nombre "${newPresetName.trim()}". ¿Deseas sobrescribirlo?`)) {
-                    return;
-                }
-            }
+            toast.error("Por favor, ingresa un nombre para el preset.");
+            return;
         }
 
-        const updatedPresets = presets.filter(p => p.name !== newPresetName.trim());
-        const newPreset: StylePreset = {
-            name: newPresetName.trim(),
-            coverSceneConfig: currentCoverConfig,
-            closingSceneConfig: currentClosingSceneConfig,
-            subtitleConfig: currentSubtitleConfig,
+        const save = () => {
+            const updatedPresets = presets.filter(p => p.name !== newPresetName.trim());
+            const newPreset: StylePreset = {
+                name: newPresetName.trim(),
+                coverSceneConfig: currentCoverConfig,
+                closingSceneConfig: currentClosingSceneConfig,
+                subtitleConfig: currentSubtitleConfig,
+            };
+            updatePresets([...updatedPresets, newPreset].sort((a, b) => a.name.localeCompare(b.name)));
+            setNewPresetName('');
+            setIsPanelOpen(false);
+            toast.success("Preset guardado exitosamente.");
         };
-        updatePresets([...updatedPresets, newPreset].sort((a, b) => a.name.localeCompare(b.name)));
-        setNewPresetName('');
-        setIsPanelOpen(false);
+
+        if (presets.some(p => p.name === newPresetName.trim())) {
+            toast("El preset ya existe", {
+                action: {
+                    label: 'Sobrescribir',
+                    onClick: save
+                }
+            });
+            return;
+        }
+
+        save();
     };
 
     const handleLoadPreset = (preset: StylePreset) => {
@@ -64,15 +71,21 @@ const PresetManager: React.FC<PresetManagerProps> = ({ presets, updatePresets, c
     };
 
     const handleDeletePreset = (presetName: string) => {
-        if (confirm(`¿Estás seguro de que quieres eliminar el preset "${presetName}"?`)) {
-            const newPresets = presets.filter(p => p.name !== presetName);
-            updatePresets(newPresets);
-        }
+        toast(`¿Eliminar preset "${presetName}"?`, {
+            action: {
+                label: 'Eliminar',
+                onClick: () => {
+                    const newPresets = presets.filter(p => p.name !== presetName);
+                    updatePresets(newPresets);
+                    toast.success("Preset eliminado.");
+                }
+            }
+        });
     };
 
     const handleExportPresets = () => {
         if (presets.length === 0) {
-            alert("No hay presets para exportar.");
+            toast.error("No hay presets para exportar.");
             return;
         }
         try {
@@ -88,7 +101,7 @@ const PresetManager: React.FC<PresetManagerProps> = ({ presets, updatePresets, c
             URL.revokeObjectURL(url);
         } catch (error) {
             console.error("Error exporting presets:", error);
-            alert("Ocurrió un error al exportar los presets.");
+            toast.error("Ocurrió un error al exportar los presets.");
         }
     };
 
@@ -126,10 +139,10 @@ const PresetManager: React.FC<PresetManagerProps> = ({ presets, updatePresets, c
                 const mergedPresets = Array.from(updatedPresetsMap.values()).sort((a, b) => a.name.localeCompare(b.name));
 
                 updatePresets(mergedPresets);
-                alert(`${importedPresets.length} presets importados exitosamente.`);
+                toast.success(`${importedPresets.length} presets importados exitosamente.`);
             } catch (error) {
                 console.error("Error importing presets:", error);
-                alert(`Error al importar presets: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+                toast.error(`Error al importar presets: ${error instanceof Error ? error.message : 'Error desconocido'}`);
             } finally {
                 if (event.target) {
                     event.target.value = '';

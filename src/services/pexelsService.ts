@@ -1,4 +1,5 @@
 import { PexelsVideo, PexelsImage } from '../types';
+import { PexelsVideoResponseSchema, PexelsImageResponseSchema } from '../schemas';
 
 const PEXELS_API_URL = 'https://api.pexels.com/videos';
 const PEXELS_IMAGES_API_URL = 'https://api.pexels.com/v1/search';
@@ -27,7 +28,8 @@ export async function searchPexelsVideos(query: string, apiKey: string): Promise
     }
 
     const data = await response.json();
-    return data.videos as PexelsVideo[];
+    const validatedData = PexelsVideoResponseSchema.parse(data);
+    return validatedData.videos;
   } catch (error) {
     console.error('Error searching Pexels videos:', error);
     throw new Error('Failed to search for videos. Please check your Pexels API key and network connection.');
@@ -57,7 +59,8 @@ export async function searchPexelsImages(query: string, apiKey: string): Promise
     }
 
     const data = await response.json();
-    return data.photos as PexelsImage[];
+    const validatedData = PexelsImageResponseSchema.parse(data);
+    return validatedData.photos;
   } catch (error) {
     console.error('Error searching Pexels images:', error);
     throw new Error('Failed to search for images. Please check your Pexels API key and network connection.');

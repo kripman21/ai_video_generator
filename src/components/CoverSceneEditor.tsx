@@ -1,4 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import { CoverSceneConfig, StylePreset, SubtitleConfig, ClosingSceneConfig } from '../types';
 import { UploadIcon, SparklesIcon, SearchIcon, LoadingIcon, TrashIcon } from './Icons';
 import PresetManager from './PresetManager';
@@ -60,10 +61,10 @@ const Preview: React.FC<{ config: CoverSceneConfig }> = ({ config }) => {
                 style={{ backgroundColor: config.backgroundColor }}
             >
                 {config.backgroundImageUrl && (
-                    <img src={config.backgroundImageUrl} alt="preview background" className="absolute inset-0 w-full h-full object-cover"/>
+                    <img src={config.backgroundImageUrl} alt="preview background" className="absolute inset-0 w-full h-full object-cover" />
                 )}
                 {config.overlayEnabled && (
-                    <div className="absolute inset-0" style={{backgroundColor: config.overlayColor, opacity: config.overlayOpacity}}></div>
+                    <div className="absolute inset-0" style={{ backgroundColor: config.overlayColor, opacity: config.overlayOpacity }}></div>
                 )}
                 <div className={`relative z-10 w-full h-full flex items-center justify-center p-4`}>
                     <div className={`flex w-full ${config.textPosition === 'above' ? 'flex-col-reverse' : 'flex-col'} items-center`}>
@@ -78,11 +79,11 @@ const Preview: React.FC<{ config: CoverSceneConfig }> = ({ config }) => {
                             <div className="w-full h-12 bg-gray-500/30 rounded-md flex items-center justify-center text-xs text-gray-400 my-1">
                                 Logo
                             </div>
-                        ): null}
+                        ) : null}
                         {config.textEnabled && (
                             <p
                                 className={`w-full text-xs break-words ${getTextAlignClass(config.textAlign)}`}
-                                style={{ 
+                                style={{
                                     color: config.textColor,
                                     fontFamily: config.fontFamily,
                                     fontWeight: config.fontWeight,
@@ -133,7 +134,7 @@ const CoverSceneEditor: React.FC<CoverSceneEditorProps> = ({ config, setConfig, 
         setConfig({ ...config, [field]: value });
     };
 
-     const handleHighlightText = () => {
+    const handleHighlightText = () => {
         // FIX: Cast textarea to 'any' to access selection properties, resolving TS error.
         const textarea = textInputRef.current as any;
         if (textarea) {
@@ -150,10 +151,10 @@ const CoverSceneEditor: React.FC<CoverSceneEditorProps> = ({ config, setConfig, 
     const handleLogoUploadClick = () => {
         (logoInputRef.current as any)?.click();
     };
-    
+
     const handleFindImage = async () => {
         if (!pexelsApiKey) {
-            (window as any).alert("La API key de Pexels no está configurada.");
+            toast.error("La API key de Pexels no está configurada.");
             return;
         }
         setIsSearchingImage(true);
@@ -162,10 +163,10 @@ const CoverSceneEditor: React.FC<CoverSceneEditorProps> = ({ config, setConfig, 
             if (images.length > 0) {
                 setConfig({ ...config, backgroundImageUrl: images[0].src.portrait });
             } else {
-                (window as any).alert("No se encontraron imágenes para tu búsqueda.");
+                toast.info("No se encontraron imágenes para tu búsqueda.");
             }
         } catch (error) {
-            (window as any).alert((error as Error).message);
+            toast.error((error as Error).message);
         } finally {
             setIsSearchingImage(false);
         }
@@ -227,7 +228,7 @@ const CoverSceneEditor: React.FC<CoverSceneEditorProps> = ({ config, setConfig, 
                 setClosingConfig={setClosingSceneConfig}
                 setSubtitleConfig={setSubtitleConfig}
             />
-            
+
             <div className="flex items-center justify-between bg-gray-700/50 p-2 rounded-md">
                 <label htmlFor="enable-cover-scene" className="font-medium">Habilitar Portada</label>
                 <button
@@ -259,22 +260,22 @@ const CoverSceneEditor: React.FC<CoverSceneEditorProps> = ({ config, setConfig, 
                                     className="w-full bg-gray-800 border border-gray-600 rounded-md p-2 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-purple-500"
                                 />
                                 <button onClick={handleFindImage} disabled={isSearchingImage} className="p-2 bg-purple-600 hover:bg-purple-700 rounded-md disabled:bg-gray-600">
-                                    {isSearchingImage ? <LoadingIcon className="w-5 h-5 animate-spin"/> : <SearchIcon className="w-5 h-5"/>}
+                                    {isSearchingImage ? <LoadingIcon className="w-5 h-5 animate-spin" /> : <SearchIcon className="w-5 h-5" />}
                                 </button>
                                 {config.backgroundImageUrl && (
                                     <button onClick={() => handleConfigChange('backgroundImageUrl', null)} className="p-2 bg-red-600 hover:bg-red-700 rounded-md" title="Eliminar imagen de fondo">
-                                        <TrashIcon className="w-5 h-5"/>
+                                        <TrashIcon className="w-5 h-5" />
                                     </button>
                                 )}
                             </div>
                             <div className="flex items-center justify-between">
                                 <label className="text-xs">Color Sólido</label>
                                 <div className="flex items-center gap-2 bg-gray-800 rounded-md border border-gray-600 px-2">
-                                    <input type="color" value={config.backgroundColor} onChange={(e) => handleConfigChange('backgroundColor', (e.currentTarget as any).value)} className="color-well"/>
-                                    <input type="text" value={config.backgroundColor} onChange={(e) => handleConfigChange('backgroundColor', (e.currentTarget as any).value)} className="w-20 bg-transparent text-sm p-1 focus:outline-none"/>
+                                    <input type="color" value={config.backgroundColor} onChange={(e) => handleConfigChange('backgroundColor', (e.currentTarget as any).value)} className="color-well" />
+                                    <input type="text" value={config.backgroundColor} onChange={(e) => handleConfigChange('backgroundColor', (e.currentTarget as any).value)} className="w-20 bg-transparent text-sm p-1 focus:outline-none" />
                                 </div>
                             </div>
-                             {/* Overlay Section */}
+                            {/* Overlay Section */}
                             <div className="border-t border-gray-700 pt-3 mt-3 space-y-3">
                                 <div className="flex items-center justify-between">
                                     <label htmlFor="enable-cover-overlay" className="font-medium text-xs">Superposición de Color</label>
@@ -290,17 +291,17 @@ const CoverSceneEditor: React.FC<CoverSceneEditorProps> = ({ config, setConfig, 
                                         <div className="flex items-center justify-between">
                                             <label className="text-xs">Color</label>
                                             <div className="flex items-center gap-2 bg-gray-800 rounded-md border border-gray-600 px-2">
-                                                <input type="color" value={config.overlayColor} onChange={(e) => handleConfigChange('overlayColor', (e.currentTarget as any).value)} className="color-well"/>
-                                                <input type="text" value={config.overlayColor} onChange={(e) => handleConfigChange('overlayColor', (e.currentTarget as any).value)} className="w-20 bg-transparent text-sm p-1 focus:outline-none"/>
+                                                <input type="color" value={config.overlayColor} onChange={(e) => handleConfigChange('overlayColor', (e.currentTarget as any).value)} className="color-well" />
+                                                <input type="text" value={config.overlayColor} onChange={(e) => handleConfigChange('overlayColor', (e.currentTarget as any).value)} className="w-20 bg-transparent text-sm p-1 focus:outline-none" />
                                             </div>
                                         </div>
                                         <div>
                                             <label className="block mb-1 text-xs">Opacidad</label>
                                             <div className="flex items-center gap-2">
-                                            <input type="range" min="0" max="1" step="0.05" value={config.overlayOpacity}
-                                                onChange={(e) => handleConfigChange('overlayOpacity', parseFloat((e.currentTarget as any).value))}
-                                                className="custom-slider" />
-                                                <span className="text-xs text-gray-400 w-10 text-right">{Math.round(config.overlayOpacity*100)}%</span>
+                                                <input type="range" min="0" max="1" step="0.05" value={config.overlayOpacity}
+                                                    onChange={(e) => handleConfigChange('overlayOpacity', parseFloat((e.currentTarget as any).value))}
+                                                    className="custom-slider" />
+                                                <span className="text-xs text-gray-400 w-10 text-right">{Math.round(config.overlayOpacity * 100)}%</span>
                                             </div>
                                         </div>
                                     </div>
@@ -362,7 +363,7 @@ const CoverSceneEditor: React.FC<CoverSceneEditorProps> = ({ config, setConfig, 
 
                         {config.textEnabled && (
                             <div className="space-y-3 border-t border-gray-700 pt-3">
-                                 <p className="text-xs text-gray-400 -mt-2 mb-2">Envuelve una palabra en *asteriscos* para resaltarla.</p>
+                                <p className="text-xs text-gray-400 -mt-2 mb-2">Envuelve una palabra en *asteriscos* para resaltarla.</p>
                                 <div className="relative">
                                     <textarea
                                         ref={textInputRef}
@@ -373,25 +374,25 @@ const CoverSceneEditor: React.FC<CoverSceneEditorProps> = ({ config, setConfig, 
                                         className="w-full bg-gray-700/50 border border-gray-600 rounded-md p-2 text-sm text-gray-200 resize-none focus:outline-none focus:ring-1 focus:ring-purple-500"
                                     />
                                     <button
-                                      onClick={handleHighlightText}
-                                      className="absolute top-1 right-1 text-gray-400 hover:text-purple-400 p-1 z-10"
-                                      aria-label="Resaltar texto seleccionado"
-                                      title="Resaltar texto seleccionado"
+                                        onClick={handleHighlightText}
+                                        className="absolute top-1 right-1 text-gray-400 hover:text-purple-400 p-1 z-10"
+                                        aria-label="Resaltar texto seleccionado"
+                                        title="Resaltar texto seleccionado"
                                     >
-                                      <SparklesIcon className="w-4 h-4" />
+                                        <SparklesIcon className="w-4 h-4" />
                                     </button>
                                 </div>
-                                 <div className="space-y-2">
+                                <div className="space-y-2">
                                     <label htmlFor="cover-font-family" className="block font-medium">Tipografía</label>
                                     <select id="cover-font-family" value={config.fontFamily}
                                         onChange={(e) => handleConfigChange('fontFamily', (e.currentTarget as any).value)}
                                         className="w-full bg-gray-700/50 border border-gray-600 rounded-md p-2 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-purple-500">
                                         {fontOptions.map(font => (
-                                            <option key={font.value} value={font.value} style={{fontFamily: font.value}}>{font.name}</option>
+                                            <option key={font.value} value={font.value} style={{ fontFamily: font.value }}>{font.name}</option>
                                         ))}
                                     </select>
                                 </div>
-                                 <div className="space-y-2">
+                                <div className="space-y-2">
                                     <label className="block font-medium">Grosor de la Fuente</label>
                                     <div className="flex rounded-md shadow-sm w-full" role="group">
                                         <button type="button" onClick={() => handleConfigChange('fontWeight', 'lighter')} className={`w-full px-3 py-1 text-xs font-medium rounded-l-lg ${getButtonStyle(config.fontWeight === 'lighter')}`}>Light</button>
@@ -403,15 +404,15 @@ const CoverSceneEditor: React.FC<CoverSceneEditorProps> = ({ config, setConfig, 
                                     <div className="bg-gray-700/50 p-2 rounded-md flex items-center justify-between">
                                         <label>Color del Texto</label>
                                         <div className="flex items-center gap-2 bg-gray-800 rounded-md border border-gray-600 px-2">
-                                            <input type="color" value={config.textColor} onChange={(e) => handleConfigChange('textColor', (e.currentTarget as any).value)} className="color-well"/>
-                                            <input type="text" value={config.textColor} onChange={(e) => handleConfigChange('textColor', (e.currentTarget as any).value)} className="w-20 bg-transparent text-sm p-1 focus:outline-none"/>
+                                            <input type="color" value={config.textColor} onChange={(e) => handleConfigChange('textColor', (e.currentTarget as any).value)} className="color-well" />
+                                            <input type="text" value={config.textColor} onChange={(e) => handleConfigChange('textColor', (e.currentTarget as any).value)} className="w-20 bg-transparent text-sm p-1 focus:outline-none" />
                                         </div>
                                     </div>
                                     <div className="bg-gray-700/50 p-2 rounded-md flex items-center justify-between">
                                         <label>Resaltado</label>
                                         <div className="flex items-center gap-2 bg-gray-800 rounded-md border border-gray-600 px-2">
-                                            <input type="color" value={config.highlightTextColor} onChange={(e) => handleConfigChange('highlightTextColor', (e.currentTarget as any).value)} className="color-well"/>
-                                            <input type="text" value={config.highlightTextColor} onChange={(e) => handleConfigChange('highlightTextColor', (e.currentTarget as any).value)} className="w-20 bg-transparent text-sm p-1 focus:outline-none"/>
+                                            <input type="color" value={config.highlightTextColor} onChange={(e) => handleConfigChange('highlightTextColor', (e.currentTarget as any).value)} className="color-well" />
+                                            <input type="text" value={config.highlightTextColor} onChange={(e) => handleConfigChange('highlightTextColor', (e.currentTarget as any).value)} className="w-20 bg-transparent text-sm p-1 focus:outline-none" />
                                         </div>
                                     </div>
                                     <div>

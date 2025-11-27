@@ -1,6 +1,7 @@
 
 
 import React, { useState, ReactNode } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface Tab {
   label: string;
@@ -42,7 +43,17 @@ const Tabs: React.FC<TabsProps> = ({ tabs }) => {
         </nav>
       </div>
       <div className="flex-grow pt-4 overflow-y-auto">
-        {tabs[activeTabIndex].content}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeTabIndex}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+          >
+            {tabs[activeTabIndex].content}
+          </motion.div>
+        </AnimatePresence>
       </div>
     </div>
   );

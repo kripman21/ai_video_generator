@@ -299,6 +299,11 @@ const drawSubtitles = (ctx: OffscreenCanvasRenderingContext2D, scene: Scene, sub
 self.onmessage = async (event: MessageEvent<RenderMessage>) => {
     if (event.data.type === 'start') {
         const { canvas: offscreenCanvas, scenes, coverConfig, closingConfig, subtitleConfig } = event.data;
+
+        if (!coverConfig || !closingConfig || !subtitleConfig) {
+            self.postMessage({ type: 'error', error: 'Missing configuration in worker message' });
+            return;
+        }
         canvas = offscreenCanvas;
         ctx = canvas.getContext('2d', { alpha: false }) as OffscreenCanvasRenderingContext2D;
 

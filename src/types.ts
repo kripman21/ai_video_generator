@@ -1,7 +1,7 @@
 // FIX: Define the PexelsVideoFile interface and remove the incorrect self-import.
 export interface PexelsVideoFile {
   id: number;
-  quality: 'sd' | 'hd';
+  quality?: string | null;
   file_type: string;
   width: number;
   height: number;
@@ -15,9 +15,9 @@ export interface PexelsVideo {
   video_files: PexelsVideoFile[];
   url: string; // page url
   user: {
-      id: number;
-      name: string;
-      url: string;
+    id: number;
+    name: string;
+    url: string;
   };
 }
 
@@ -47,7 +47,7 @@ export interface PexelsImage {
 
 
 export interface Scene {
-  id:string;
+  id: string;
   scene_number: number;
   description: string;
   script: string;

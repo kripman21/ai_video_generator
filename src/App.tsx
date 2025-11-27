@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { toast } from 'sonner';
 import { Scene, BackgroundMusic, PexelsVideo, ClosingSceneConfig, SubtitleConfig, CoverSceneConfig } from './types';
 import { generateScenesFromScript, generateTTS } from './services/geminiService';
 import { searchPexelsVideos } from './services/pexelsService';
@@ -24,12 +25,12 @@ const App: React.FC = () => {
   const [backgroundMusic, setBackgroundMusic] = useState<BackgroundMusic | null>(null);
   const [pexelsApiKey, setPexelsApiKey] = useState<string | null>(null);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
-  
+
   const [isRendering, setIsRendering] = useState(false);
   const [renderProgress, setRenderProgress] = useState(0);
   const [renderMessage, setRenderMessage] = useState('');
 
-  const defaultPexelsApiKey = 'kCTBEmMFT0bQUbsWT70FBjuFE5tpHOQObzOwpmQpTqjli4WTeDXFzIva';
+  const defaultPexelsApiKey = import.meta.env.VITE_PEXELS_API_KEY || '';
   const exampleScript = `Unveiling the top 3 secrets to a successful morning routine.
 First, wake up early. This gives you quiet time for yourself before the day's chaos begins.
 Second, hydrate. A glass of water before anything else kickstarts your metabolism.
@@ -104,12 +105,12 @@ Follow these tips for a more productive and peaceful life.`;
   const handleSaveApiKey = (key: string) => {
     const keyToSave = key.trim();
     if (keyToSave) {
-        setPexelsApiKey(keyToSave);
-        localStorage.setItem('pexelsApiKey', keyToSave);
+      setPexelsApiKey(keyToSave);
+      localStorage.setItem('pexelsApiKey', keyToSave);
     } else {
-        // If user clears the key, revert to default
-        setPexelsApiKey(defaultPexelsApiKey);
-        localStorage.setItem('pexelsApiKey', defaultPexelsApiKey);
+      // If user clears the key, revert to default
+      setPexelsApiKey(defaultPexelsApiKey);
+      localStorage.setItem('pexelsApiKey', defaultPexelsApiKey);
     }
   };
 
@@ -119,7 +120,7 @@ Follow these tips for a more productive and peaceful life.`;
       setError('Please enter a script.');
       return;
     }
-    
+
     if (!pexelsApiKey) {
       setShowApiKeyModal(true);
       return;
@@ -128,7 +129,7 @@ Follow these tips for a more productive and peaceful life.`;
     setIsLoading(true);
     setError(null);
     setScenes([]);
-    
+
     try {
       setLoadingMessage('Analizando guion y creando escenas...');
       const structuredScenes = await generateScenesFromScript(currentScript);
@@ -164,7 +165,7 @@ Follow these tips for a more productive and peaceful life.`;
                 });
               });
             } catch {
-               durationMs = (video?.duration || 5) * 1000;
+              durationMs = (video?.duration || 5) * 1000;
             }
           } else {
             // For sample videos without audio, set a default duration of 3 seconds.
@@ -192,13 +193,13 @@ Follow these tips for a more productive and peaceful life.`;
   }, [script, pexelsApiKey]);
 
   const handleGenerateVideo = () => handleGenerate(true);
-  
+
   const handleGenerateSample = () => {
     if (!script.trim()) {
-        setScript(exampleScript);
-        handleGenerate(false, exampleScript);
+      setScript(exampleScript);
+      handleGenerate(false, exampleScript);
     } else {
-        handleGenerate(false);
+      handleGenerate(false);
     }
   };
 
@@ -251,11 +252,10 @@ Follow these tips for a more productive and peaceful life.`;
       }));
     });
   };
-  
+
   const handleDownloadVideo = async () => {
     if (scenes.length === 0) {
-      // FIX: Cast `window` to `any` to access `alert` function, resolving TypeScript error.
-      (window as any).alert("Por favor, genera las escenas antes de descargar.");
+      toast.warning("Por favor, genera las escenas antes de descargar.");
       return;
     }
     setIsRendering(true);
@@ -275,23 +275,30 @@ Follow these tips for a more productive and peaceful life.`;
       );
     } catch (err) {
       console.error("Rendering failed:", err);
-      // FIX: Cast `window` to `any` to access `alert` function, resolving TypeScript error.
-      (window as any).alert("La renderización del video falló. Revisa la consola para más detalles.");
+      toast.error("La renderización falló. Revisa la consola.");
     } finally {
       setIsRendering(false);
     }
   };
 
   const handleCreateNewVideo = () => {
-    if ((window as any).confirm("¿Estás seguro de que quieres crear un nuevo video? Se perderá todo el progreso actual.")) {
-      setScript('');
-      setScenes([]);
-      setBackgroundMusic(null);
-      setCoverSceneConfig(initialCoverConfig);
-      setClosingSceneConfig(initialClosingConfig);
-      setSubtitleConfig(initialSubtitleConfig);
-      setError(null);
-    }
+    toast("¿Estás seguro? Se perderá el progreso actual.", {
+      action: {
+        label: 'Confirmar',
+        onClick: () => {
+          setScript('');
+          setScenes([]);
+          setBackgroundMusic(null);
+          setCoverSceneConfig(initialCoverConfig);
+          setClosingSceneConfig(initialClosingConfig);
+          setSubtitleConfig(initialSubtitleConfig);
+          setError(null);
+        }
+      },
+      cancel: {
+        label: 'Cancelar',
+      },
+    });
   };
 
 
@@ -360,7 +367,7 @@ Follow these tips for a more productive and peaceful life.`;
   return (
     <div className="min-h-screen bg-gray-900 text-white font-sans">
       {showApiKeyModal && (
-        <ApiKeyModal 
+        <ApiKeyModal
           currentKey={pexelsApiKey}
           onClose={() => setShowApiKeyModal(false)}
           onSave={handleSaveApiKey}
@@ -369,13 +376,13 @@ Follow these tips for a more productive and peaceful life.`;
 
       <header className="bg-gray-800 shadow-lg p-4 flex justify-between items-center">
         <h1 className="text-2xl font-bold tracking-wider text-purple-400 flex items-center">
-          <VideoIcon className="w-8 h-8 mr-3"/>
+          <VideoIcon className="w-8 h-8 mr-3" />
           Generador de Video Vertical con IA
         </h1>
         <div className="flex items-center gap-4">
           {scenes.length > 0 && !isLoading && !isRendering && (
-            <button 
-              onClick={handleCreateNewVideo} 
+            <button
+              onClick={handleCreateNewVideo}
               className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
               title="Crear un nuevo video"
             >
@@ -390,51 +397,51 @@ Follow these tips for a more productive and peaceful life.`;
       </header>
 
       <main className="p-4 md:p-8">
-          <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {scenes.length === 0 ? (
-                 <ScriptInput
-                    script={script}
-                    setScript={setScript}
-                    onGenerateVideo={handleGenerateVideo}
-                    onGenerateSample={handleGenerateSample}
-                    isDisabled={isLoading}
-                  />
-            ) : (
-                <div className="bg-gray-800 p-6 rounded-2xl shadow-2xl h-[85vh] flex flex-col">
-                     <VideoPreview 
-                       scenes={scenes} 
-                       backgroundMusic={backgroundMusic} 
-                       coverSceneConfig={coverSceneConfig}
-                       closingSceneConfig={closingSceneConfig} 
-                       subtitleConfig={subtitleConfig}
-                       isRendering={isRendering}
-                       renderProgress={renderProgress}
-                       renderMessage={renderMessage}
-                       onDownload={handleDownloadVideo}
-                      />
-                </div>
-            )}
-           
+        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {scenes.length === 0 ? (
+            <ScriptInput
+              script={script}
+              setScript={setScript}
+              onGenerateVideo={handleGenerateVideo}
+              onGenerateSample={handleGenerateSample}
+              isDisabled={isLoading}
+            />
+          ) : (
             <div className="bg-gray-800 p-6 rounded-2xl shadow-2xl h-[85vh] flex flex-col">
-              {isLoading ? (
-                <div className="flex flex-col items-center justify-center h-full">
-                  <LoadingIcon className="w-12 h-12 animate-spin text-purple-400" />
-                  <p className="mt-4 text-lg">{loadingMessage}</p>
-                </div>
-              ) : error ? (
-                <div className="flex items-center justify-center h-full text-red-400">
-                  <p>Error: {error}</p>
-                </div>
-              ) : scenes.length > 0 ? (
-                <Tabs tabs={editorTabs} />
-              ) : (
-                <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                   <h2 className="text-xl font-semibold mb-4 text-purple-300 border-b border-gray-700 pb-2">Editor</h2>
-                  <p className="text-center mt-4">Tus escenas generadas aparecerán aquí. <br/> Comienza escribiendo un guion y haciendo clic en "Generar Video".</p>
-                </div>
-              )}
+              <VideoPreview
+                scenes={scenes}
+                backgroundMusic={backgroundMusic}
+                coverSceneConfig={coverSceneConfig}
+                closingSceneConfig={closingSceneConfig}
+                subtitleConfig={subtitleConfig}
+                isRendering={isRendering}
+                renderProgress={renderProgress}
+                renderMessage={renderMessage}
+                onDownload={handleDownloadVideo}
+              />
             </div>
+          )}
+
+          <div className="bg-gray-800 p-6 rounded-2xl shadow-2xl h-[85vh] flex flex-col">
+            {isLoading ? (
+              <div className="flex flex-col items-center justify-center h-full">
+                <LoadingIcon className="w-12 h-12 animate-spin text-purple-400" />
+                <p className="mt-4 text-lg">{loadingMessage}</p>
+              </div>
+            ) : error ? (
+              <div className="flex items-center justify-center h-full text-red-400">
+                <p>Error: {error}</p>
+              </div>
+            ) : scenes.length > 0 ? (
+              <Tabs tabs={editorTabs} />
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                <h2 className="text-xl font-semibold mb-4 text-purple-300 border-b border-gray-700 pb-2">Editor</h2>
+                <p className="text-center mt-4">Tus escenas generadas aparecerán aquí. <br /> Comienza escribiendo un guion y haciendo clic en "Generar Video".</p>
+              </div>
+            )}
           </div>
+        </div>
       </main>
     </div>
   );

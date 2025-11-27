@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Scene } from '../types';
 import SceneCard from './SceneCard';
 import { PlusIcon } from './Icons';
@@ -53,7 +54,7 @@ const SceneEditor: React.FC<SceneEditorProps> = ({ scenes, updateScene, pexelsAp
       newScenes.splice(dragOverItem.current, 0, draggedItemContent);
       onReorder(newScenes);
     }
-    
+
     setIsDragging(false);
     dragItem.current = null;
     dragOverItem.current = null;
@@ -62,19 +63,24 @@ const SceneEditor: React.FC<SceneEditorProps> = ({ scenes, updateScene, pexelsAp
   return (
     <div className="flex-grow overflow-y-auto pr-2">
       {scenes.length === 0 && <AddSceneButton onAdd={() => onAddScene(0)} />}
-      
-      {scenes.map((scene, index) => (
-        <React.Fragment key={scene.id}>
-           {index === 0 && <AddSceneButton onAdd={() => onAddScene(0)} />}
-            <div
+
+      <AnimatePresence mode="popLayout">
+        {scenes.map((scene, index) => (
+          <React.Fragment key={scene.id}>
+            {index === 0 && <AddSceneButton onAdd={() => onAddScene(0)} />}
+            <motion.div
+              layout
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              transition={{ duration: 0.2 }}
               draggable
               onDragStart={() => handleDragStart(index)}
               onDragEnter={() => handleDragEnter(index)}
               onDragEnd={handleDragEnd}
               onDragOver={(e) => e.preventDefault()}
-              className={`cursor-grab active:cursor-grabbing transition-all duration-200 ease-in-out my-3 ${
-                isDragging && dragItem.current === index ? 'opacity-40 scale-95' : 'opacity-100 scale-100'
-              }`}
+              className={`cursor-grab active:cursor-grabbing my-3 ${isDragging && dragItem.current === index ? 'opacity-40 scale-95' : 'opacity-100 scale-100'
+                }`}
             >
               <SceneCard
                 scene={scene}
@@ -82,10 +88,11 @@ const SceneEditor: React.FC<SceneEditorProps> = ({ scenes, updateScene, pexelsAp
                 pexelsApiKey={pexelsApiKey}
                 onDelete={onDeleteScene}
               />
-            </div>
-           <AddSceneButton onAdd={() => onAddScene(index + 1)} />
-        </React.Fragment>
-      ))}
+            </motion.div>
+            <AddSceneButton onAdd={() => onAddScene(index + 1)} />
+          </React.Fragment>
+        ))}
+      </AnimatePresence>
     </div>
   );
 };

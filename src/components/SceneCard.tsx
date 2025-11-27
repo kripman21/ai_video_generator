@@ -1,4 +1,5 @@
 import React, { ChangeEvent, useState, useRef } from 'react';
+import { toast } from 'sonner';
 import { Scene, PexelsVideo } from '../types';
 import { PlayIcon, SearchIcon, LoadingIcon, TrashIcon } from './Icons';
 import { searchPexelsVideos } from '../services/pexelsService';
@@ -22,7 +23,7 @@ const SceneCard: React.FC<SceneCardProps> = ({ scene, updateScene, pexelsApiKey,
 
   const handleFindVideo = async () => {
     if (!pexelsApiKey) {
-      alert("La API key de Pexels no está configurada.");
+      toast.error("La API key de Pexels no está configurada.");
       return;
     }
     setIsSearching(true);
@@ -32,7 +33,7 @@ const SceneCard: React.FC<SceneCardProps> = ({ scene, updateScene, pexelsApiKey,
       const videos = await searchPexelsVideos(videoSearchQuery, pexelsApiKey);
       setSearchResults(videos);
     } catch (error) {
-      alert((error as Error).message);
+      toast.error((error as Error).message);
       setIsModalOpen(false); // Close modal on error
     } finally {
       setIsSearching(false);

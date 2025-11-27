@@ -2,6 +2,7 @@
 
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { Scene } from "../types";
+import { GeminiResponseSchema } from "../schemas";
 
 // FIX: Removed `declare const process` block to adhere to guidelines.
 // Assuming 'process' is available in the execution environment as per guidelines.
@@ -52,11 +53,15 @@ export async function generateScenesFromScript(script: string): Promise<Omit<Sce
     });
 
     const jsonResponse = JSON.parse(response.text);
-    if (jsonResponse && jsonResponse.scenes) {
-      return jsonResponse.scenes;
-    } else {
-      throw new Error("Invalid response format from Gemini API.");
-    }
+
+    // Validate the response using Zod schema
+    const validatedResponse = GeminiResponseSchema.parse(jsonResponse);
+
+    // Add default duration to satisfy the Scene type
+    return validatedResponse.scenes.map(scene => ({
+      ...scene,
+      duration: 0 // Default duration, can be updated later
+    }));
   } catch (error) {
     console.error("Error generating scenes from script:", error);
     throw new Error("Failed to generate scenes. Please check your script and try again.");
