@@ -65,6 +65,7 @@ export class MP4Demuxer {
         };
 
         fetch(uri).then(response => {
+            if (!response.ok) throw new Error(`Fetch status: ${response.status}`);
             if (!response.body) throw new Error("No body");
             const reader = response.body.getReader();
             let offset = 0;
@@ -82,7 +83,7 @@ export class MP4Demuxer {
                         this.file.appendBuffer(buffer);
                         push();
                     }
-                }).catch(e => onStatus(`Fetch Error: ${e}`));
+                }).catch(e => onStatus(`Fetch Error: ${e.message || e}`));
             }
             push();
         });

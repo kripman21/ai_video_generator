@@ -2,6 +2,15 @@ import { Scene, CoverSceneConfig, ClosingSceneConfig, SubtitleConfig, Background
 import { MP4Demuxer } from '../utils/MP4Demuxer';
 import { buildTimeline, TimelineSegment, findBestVideoUrl } from '../utils/renderUtils';
 
+// 1. Global Error Handlers
+self.onerror = (e) => {
+    self.postMessage({ type: 'error', error: `Global Worker Error: ${e instanceof ErrorEvent ? e.message : String(e)}` });
+};
+
+self.onunhandledrejection = (e) => {
+    self.postMessage({ type: 'error', error: `Unhandled Rejection: ${e.reason}` });
+};
+
 export interface RenderMessage {
     type: 'start';
     canvas: OffscreenCanvas;
@@ -63,7 +72,7 @@ const decodeVideo = async (url: string, durationMs: number): Promise<VideoFrame[
                 decoder?.decode(chunk);
             },
             (status) => {
-                // console.log("Demuxer status:", status);
+                self.postMessage({ type: 'log', message: `⚠️ Demuxer Status: ${status}` });
             }
         );
 
@@ -298,122 +307,142 @@ const drawSubtitles = (ctx: OffscreenCanvasRenderingContext2D, scene: Scene, sub
 
 self.onmessage = async (event: MessageEvent<RenderMessage>) => {
     if (event.data.type === 'start') {
-        const { canvas: offscreenCanvas, scenes, coverConfig, closingConfig, subtitleConfig } = event.data;
+        try {
+            self.postMessage({ type: 'log', message: "DIAGNÓSTICO: Worker iniciado. Verificando entorno..." });
 
-        if (!coverConfig || !closingConfig || !subtitleConfig) {
-            self.postMessage({ type: 'error', error: 'Missing configuration in worker message' });
-            return;
-        }
-        canvas = offscreenCanvas;
-        ctx = canvas.getContext('2d', { alpha: false }) as OffscreenCanvasRenderingContext2D;
+            if (typeof VideoDecoder === 'undefined') {
+                throw new Error("El navegador no soporta VideoDecoder en Workers.");
+            }
 
-        if (!ctx) {
-            console.error("Failed to get 2D context");
-            return;
-        }
+            const { canvas: offscreenCanvas, scenes, coverConfig, closingConfig, subtitleConfig } = event.data;
 
-        // 1. Preload Resources
-        self.postMessage({ type: 'progress', value: 5, message: 'Cargando recursos...' });
+            if (!coverConfig || !closingConfig || !subtitleConfig) {
+                self.postMessage({ type: 'error', error: 'Missing configuration in worker message' });
+                return;
+            }
+            canvas = offscreenCanvas;
+            ctx = canvas.getContext('2d', { alpha: false }) as OffscreenCanvasRenderingContext2D;
 
-        if (coverConfig.enabled) {
-            if (coverConfig.logoUrl) await loadImage(coverConfig.logoUrl).then(img => img && imageCache.set(coverConfig.logoUrl!, img));
-            if (coverConfig.backgroundImageUrl) await loadImage(coverConfig.backgroundImageUrl).then(img => img && imageCache.set(coverConfig.backgroundImageUrl!, img));
-        }
-        if (closingConfig.enabled && closingConfig.logoUrl) {
-            await loadImage(closingConfig.logoUrl).then(img => img && imageCache.set(closingConfig.logoUrl!, img));
-        }
+            if (!ctx) {
+                console.error("Failed to get 2D context");
+                return;
+            }
 
-        // 2. Decode Videos (Simplified: Fetch and decode all needed videos)
-        // In a real app, you'd manage memory better.
-        self.postMessage({ type: 'progress', value: 15, message: 'Procesando videos...' });
-        const uniqueVideos = [...new Set(scenes.map(s => findBestVideoUrl(s.video)).filter(Boolean))];
+            // 1. Preload Resources
+            self.postMessage({ type: 'progress', progress: 5, message: 'Cargando recursos...' });
 
-        for (const url of uniqueVideos) {
-            // We need to know duration to know how much to decode, but for now let's try to decode a chunk
-            // This part is tricky without proper streaming. We'll rely on the MP4Demuxer to pull what it can.
-            // For this MVP, we might just decode the first few seconds if we can't get full duration easily.
-            // Actually, let's assume we decode enough.
-            const frames = await decodeVideo(url, 5000); // Try to decode 5s buffer
-            videoBuffer.set(url, frames);
-        }
+            if (coverConfig.enabled) {
+                if (coverConfig.logoUrl) await loadImage(coverConfig.logoUrl).then(img => img && imageCache.set(coverConfig.logoUrl!, img));
+                if (coverConfig.backgroundImageUrl) await loadImage(coverConfig.backgroundImageUrl).then(img => img && imageCache.set(coverConfig.backgroundImageUrl!, img));
+            }
+            if (closingConfig.enabled && closingConfig.logoUrl) {
+                await loadImage(closingConfig.logoUrl).then(img => img && imageCache.set(closingConfig.logoUrl!, img));
+            }
 
-        // 3. Build Timeline
-        const timeline = buildTimeline(scenes, coverConfig, closingConfig);
-        const totalDuration = timeline.reduce((acc, seg) => acc + seg.duration, 0);
+            // 2. Decode Videos (Simplified: Fetch and decode all needed videos)
+            self.postMessage({ type: 'progress', progress: 15, message: 'Procesando videos...' });
+            const uniqueVideos = [...new Set(scenes.map(s => findBestVideoUrl(s.video)).filter(Boolean))];
 
-        // 4. Start Recording
-        const stream = canvas.captureStream(FRAME_RATE);
-        const mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp9' });
-        const chunks: Blob[] = [];
-        mediaRecorder.ondataavailable = (e) => e.data.size > 0 && chunks.push(e.data);
-        mediaRecorder.start();
-
-        // 5. Render Loop
-        let currentTime = 0;
-
-        for (const segment of timeline) {
-            const segmentFrames = Math.round(segment.duration / FRAME_DURATION_MS);
-
-            for (let i = 0; i < segmentFrames; i++) {
-                const timeInSegment = i * FRAME_DURATION_MS;
-                const progress = 20 + (currentTime / totalDuration) * 80;
-
-                if (i % 10 === 0) {
-                    self.postMessage({ type: 'progress', value: progress, message: `Renderizando... ${Math.round(currentTime / 1000)}s` });
+            for (const url of uniqueVideos) {
+                self.postMessage({ type: 'log', message: `Intentando decodificar: ${url}` });
+                try {
+                    const frames = await decodeVideo(url, 5000); // Try to decode 5s buffer
+                    videoBuffer.set(url, frames);
+                    self.postMessage({ type: 'log', message: `✅ Decodificado: ${url} (${frames.length} frames)` });
+                } catch (e: any) {
+                    self.postMessage({ type: 'error', error: `❌ Falló video ${url}: ${e.message}` });
                 }
+            }
 
-                // Clear
-                ctx.fillStyle = 'black';
-                ctx.fillRect(0, 0, WIDTH, HEIGHT);
+            self.postMessage({ type: 'log', message: `Buffer de video: ${videoBuffer.size} videos cargados.` });
+            videoBuffer.forEach((frames, url) => {
+                self.postMessage({ type: 'log', message: `Video ${url.slice(-15)}: ${frames.length} frames decodificados.` });
+            });
 
-                if (segment.type === 'cover') {
-                    const logo = coverConfig.logoUrl ? imageCache.get(coverConfig.logoUrl) || null : null;
-                    const bg = coverConfig.backgroundImageUrl ? imageCache.get(coverConfig.backgroundImageUrl) || null : null;
-                    drawSceneOverlay(ctx, coverConfig, subtitleConfig, logo, bg);
-                } else if (segment.type === 'closing') {
-                    const logo = closingConfig.logoUrl ? imageCache.get(closingConfig.logoUrl) || null : null;
-                    drawSceneOverlay(ctx, closingConfig, subtitleConfig, logo);
-                } else if (segment.type === 'scene' && segment.scene) {
-                    const videoUrl = findBestVideoUrl(segment.scene.video);
-                    const frames = videoBuffer.get(videoUrl);
+            // 3. Build Timeline
+            const timeline = buildTimeline(scenes, coverConfig, closingConfig);
+            self.postMessage({ type: 'log', message: 'Timeline construida:', data: JSON.stringify(timeline) });
+            const totalDuration = timeline.reduce((acc, seg) => acc + seg.duration, 0);
+            self.postMessage({ type: 'log', message: `Duración Total calculada: ${totalDuration}ms` });
 
-                    if (frames && frames.length > 0) {
-                        // Find closest frame
-                        // This is a naive lookup. Ideally, frames are timestamped.
-                        // Assuming 30fps input for simplicity or just taking frame by index ratio
-                        const frameIndex = Math.floor((timeInSegment / 1000) * 30);
-                        const frame = frames[Math.min(frameIndex, frames.length - 1)];
+            if (!totalDuration || isNaN(totalDuration)) {
+                throw new Error(`Error Crítico: La duración total es ${totalDuration}. Esto causa el NaN%. Revisa si las escenas tienen duración > 0.`);
+            }
 
-                        if (frame) {
-                            const videoRatio = frame.displayWidth / frame.displayHeight;
-                            const canvasRatio = WIDTH / HEIGHT;
-                            let w = WIDTH, h = HEIGHT, x = 0, y = 0;
-                            if (videoRatio > canvasRatio) { h = w / videoRatio; y = (HEIGHT - h) / 2; }
-                            else { w = h * videoRatio; x = (WIDTH - w) / 2; }
+            // 4. Start Recording
+            const stream = canvas.captureStream(FRAME_RATE);
+            const mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp9' });
+            const chunks: Blob[] = [];
+            mediaRecorder.ondataavailable = (e) => e.data.size > 0 && chunks.push(e.data);
+            mediaRecorder.start();
 
-                            ctx.drawImage(frame, x, y, w, h);
-                        }
+            // 5. Render Loop
+            let currentTime = 0;
+
+            for (const segment of timeline) {
+                const segmentFrames = Math.round(segment.duration / FRAME_DURATION_MS);
+
+                for (let i = 0; i < segmentFrames; i++) {
+                    const timeInSegment = i * FRAME_DURATION_MS;
+                    const progress = 20 + (currentTime / totalDuration) * 80;
+
+                    if (i % 10 === 0) {
+                        self.postMessage({ type: 'progress', progress: progress, message: `Renderizando... ${Math.round(currentTime / 1000)}s` });
                     }
 
-                    drawSubtitles(ctx, segment.scene, subtitleConfig);
+                    // Clear
+                    ctx.fillStyle = 'black';
+                    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+                    if (segment.type === 'cover') {
+                        const logo = coverConfig.logoUrl ? imageCache.get(coverConfig.logoUrl) || null : null;
+                        const bg = coverConfig.backgroundImageUrl ? imageCache.get(coverConfig.backgroundImageUrl) || null : null;
+                        drawSceneOverlay(ctx, coverConfig, subtitleConfig, logo, bg);
+                    } else if (segment.type === 'closing') {
+                        const logo = closingConfig.logoUrl ? imageCache.get(closingConfig.logoUrl) || null : null;
+                        drawSceneOverlay(ctx, closingConfig, subtitleConfig, logo);
+                    } else if (segment.type === 'scene' && segment.scene) {
+                        const videoUrl = findBestVideoUrl(segment.scene.video);
+                        const frames = videoBuffer.get(videoUrl);
+
+                        if (frames && frames.length > 0) {
+                            const frameIndex = Math.floor((timeInSegment / 1000) * 30);
+                            const frame = frames[Math.min(frameIndex, frames.length - 1)];
+
+                            if (frame) {
+                                const videoRatio = frame.displayWidth / frame.displayHeight;
+                                const canvasRatio = WIDTH / HEIGHT;
+                                let w = WIDTH, h = HEIGHT, x = 0, y = 0;
+                                if (videoRatio > canvasRatio) { h = w / videoRatio; y = (HEIGHT - h) / 2; }
+                                else { w = h * videoRatio; x = (WIDTH - w) / 2; }
+
+                                ctx.drawImage(frame, x, y, w, h);
+                            }
+                        }
+
+                        drawSubtitles(ctx, segment.scene, subtitleConfig);
+                    }
+
+                    // Wait for next frame tick
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                    currentTime += FRAME_DURATION_MS;
                 }
-
-                // Wait for next frame tick
-                await new Promise(resolve => setTimeout(resolve, 0));
-                currentTime += FRAME_DURATION_MS;
             }
+
+            mediaRecorder.stop();
+            await new Promise(resolve => mediaRecorder.onstop = resolve);
+
+            const blob = new Blob(chunks, { type: 'video/webm' });
+            const url = URL.createObjectURL(blob);
+
+            self.postMessage({ type: 'complete', url });
+
+            // Cleanup
+            videoBuffer.forEach(frames => frames.forEach(f => f.close()));
+            videoBuffer.clear();
+        } catch (err) {
+            self.postMessage({ type: 'error', error: `Render Logic Crash: ${err instanceof Error ? err.message : String(err)}` });
         }
-
-        mediaRecorder.stop();
-        await new Promise(resolve => mediaRecorder.onstop = resolve);
-
-        const blob = new Blob(chunks, { type: 'video/webm' });
-        const url = URL.createObjectURL(blob);
-
-        self.postMessage({ type: 'complete', url });
-
-        // Cleanup
-        videoBuffer.forEach(frames => frames.forEach(f => f.close()));
-        videoBuffer.clear();
     }
 };
+// End of worker

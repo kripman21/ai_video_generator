@@ -533,9 +533,11 @@ async function renderVideoWithWorker(
         const canvas = new OffscreenCanvas(720, 1280);
 
         worker.onmessage = (event) => {
-            const { type, progress, message, error } = event.data;
+            const { type, progress, message, error, data } = event.data;
             if (type === 'progress') {
                 onProgress(progress, message);
+            } else if (type === 'log') {
+                console.log(`👷 [WORKER]:`, message, data || '');
             } else if (type === 'complete') {
                 worker.terminate();
                 resolve();
