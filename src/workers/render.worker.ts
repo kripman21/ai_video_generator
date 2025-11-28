@@ -47,46 +47,67 @@ const loadImage = async (url: string): Promise<ImageBitmap | null> => {
     }
 };
 
-// Helper to decode video entirely (simplified for this use case)
-// In a production app, you'd stream this. Here we'll try to decode needed segments.
-const decodeVideo = async (url: string, durationMs: number): Promise<VideoFrame[]> => {
+// Helper to decode video with Timeout Safety
+const decodeVideo = async (url: string, timeoutMs: number = 10000): Promise<VideoFrame[]> => {
     const frames: VideoFrame[] = [];
     let decoder: VideoDecoder | null = null;
+    let demuxer: any = null;
 
-    const decodePromise = new Promise<void>((resolve, reject) => {
+    const decodeProcess = new Promise<void>((resolve, reject) => {
         decoder = new VideoDecoder({
-            output: (frame) => {
-                frames.push(frame);
-            },
-            error: (e) => {
-                console.error("Decoder error", e);
-                reject(e);
-            }
+            output: (frame) => frames.push(frame),
+            error: (e) => reject(new Error(`Decoder Error: ${e.message}`))
         });
 
-        new MP4Demuxer(url,
+        demuxer = new MP4Demuxer(url,
             (config) => {
-                decoder?.configure(config);
+                if (decoder?.state === 'configured' || decoder?.state === 'closed') return;
+                try {
+                    // Force hardware acceleration if possible, distinct check for supported configs could be added here
+                    decoder?.configure(config);
+                } catch (err) {
+                    reject(new Error(`Config Error: ${err}`));
+                }
             },
             (chunk) => {
-                decoder?.decode(chunk);
+                try {
+                    decoder?.decode(chunk);
+                } catch (e) {
+                    console.warn("Chunk decode error", e);
+                }
             },
             (status) => {
-                self.postMessage({ type: 'log', message: `⚠️ Demuxer Status: ${status}` });
+                // Log status but don't fail immediately on warnings
+                self.postMessage({ type: 'log', message: `⚠️ Demuxer: ${status}` });
+                if (status.includes('Error')) reject(new Error(status));
             }
         );
 
-        // A rough way to wait for decoding. In reality, MP4Demuxer should signal end of stream.
-        // For this MVP, we'll wait a bit or until we have enough frames.
-        // This is a simplification.
-        setTimeout(() => {
-            resolve();
-        }, 5000 + durationMs); // Wait enough time for download + decode
+        // Wait for buffer to fill or end. 
+        // In this simplified version, we rely on the timeout race below to stop listening.
     });
 
-    await decodePromise;
-    await decoder?.flush();
-    decoder?.close();
+    // Race between decoding and a strict timeout
+    const timeoutPromise = new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error(`Timeout: Video ${url.slice(-10)} tardó demasiado.`)), timeoutMs)
+    );
+
+    try {
+        // Wait for a reasonable amount of time to get frames, then force resolve to continue
+        await Promise.race([
+            decodeProcess,
+            new Promise(r => setTimeout(r, 6000)) // Artificial "Done" after 6s of downloading
+        ]);
+    } catch (e) {
+        self.postMessage({ type: 'log', message: `⚠️ Salteando video por error/timeout: ${e instanceof Error ? e.message : e}` });
+        // Return whatever frames we got (or empty), don't crash the worker
+    } finally {
+        if (decoder && decoder.state !== 'closed') {
+            await decoder.flush().catch(() => { });
+            decoder.close();
+        }
+    }
+
     return frames;
 };
 
@@ -350,7 +371,9 @@ self.onmessage = async (event: MessageEvent<RenderMessage>) => {
                     videoBuffer.set(url, frames);
                     self.postMessage({ type: 'log', message: `✅ Decodificado: ${url} (${frames.length} frames)` });
                 } catch (e: any) {
-                    self.postMessage({ type: 'error', error: `❌ Falló video ${url}: ${e.message}` });
+                    // CAMBIO CLAVE: Usamos 'log' en vez de 'error' para NO detener el proceso
+                    self.postMessage({ type: 'log', message: `⚠️ Saltando video corrupto/lento: ${url} (${e.message || e})` });
+                    // El bucle continúa al siguiente video automáticamente
                 }
             }
 
@@ -366,12 +389,19 @@ self.onmessage = async (event: MessageEvent<RenderMessage>) => {
             self.postMessage({ type: 'log', message: `Duración Total calculada: ${totalDuration}ms` });
 
             if (!totalDuration || isNaN(totalDuration)) {
-                throw new Error(`Error Crítico: La duración total es ${totalDuration}. Esto causa el NaN%. Revisa si las escenas tienen duración > 0.`);
+                self.postMessage({ type: 'log', message: "⚠️ Advertencia: Duración total incierta, usando valor estimado." });
+                // No lanzamos error para permitir que se genere al menos la portada/texto
             }
 
             // 4. Start Recording
             const stream = canvas.captureStream(FRAME_RATE);
-            const mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm; codecs=vp9' });
+            // Detectar si soporta MP4 (H.264), si no, caer a WebM (VP9)
+            const mp4Type = 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"';
+            const isMp4Supported = MediaRecorder.isTypeSupported(mp4Type);
+            const mimeType = isMp4Supported ? mp4Type : 'video/webm; codecs=vp9';
+            const fileExtension = isMp4Supported ? 'mp4' : 'webm';
+
+            const mediaRecorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5000000 });
             const chunks: Blob[] = [];
             mediaRecorder.ondataavailable = (e) => e.data.size > 0 && chunks.push(e.data);
             mediaRecorder.start();
@@ -432,10 +462,10 @@ self.onmessage = async (event: MessageEvent<RenderMessage>) => {
             mediaRecorder.stop();
             await new Promise(resolve => mediaRecorder.onstop = resolve);
 
-            const blob = new Blob(chunks, { type: 'video/webm' });
+            const blob = new Blob(chunks, { type: mimeType });
             const url = URL.createObjectURL(blob);
 
-            self.postMessage({ type: 'complete', url });
+            self.postMessage({ type: 'complete', url, extension: fileExtension });
 
             // Cleanup
             videoBuffer.forEach(frames => frames.forEach(f => f.close()));

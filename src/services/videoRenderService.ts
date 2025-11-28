@@ -198,7 +198,7 @@ async function renderVideoMainThread(
         const WIDTH = 720;
         const HEIGHT = 1280;
         const FRAME_RATE = 30;
-        const VIDEO_BITRATE = 4000000; // 4 Mbps
+        const VIDEO_BITRATE = 15000000; // 15 Mbps
         const COVER_DURATION = 100;
         const CLOSING_DURATION = 3000;
         const FRAME_DURATION_MS = 1000 / FRAME_RATE;
@@ -273,7 +273,8 @@ async function renderVideoMainThread(
 
         const seekVideo = (videoEl: any, time: number): Promise<void> => {
             return new Promise(resolve => {
-                if (videoEl.readyState > 2 && Math.abs(videoEl.currentTime - time) < 0.1) {
+                // Optimización: Si ya estamos cerca del tiempo objetivo, no hacer seek
+                if (Math.abs(videoEl.currentTime - time) < 0.1) {
                     resolve();
                     return;
                 }
@@ -491,7 +492,6 @@ async function renderVideoMainThread(
                 }
 
                 (videoTrack as any).requestFrame();
-                await new Promise(res => setTimeout(res, 25)); // Yield to event loop
                 currentTime += FRAME_DURATION_MS;
             }
         }
@@ -539,6 +539,21 @@ async function renderVideoWithWorker(
             } else if (type === 'log') {
                 console.log(`👷 [WORKER]:`, message, data || '');
             } else if (type === 'complete') {
+                // 1. Extraer la URL del blob generado por el worker
+                const { url } = event.data;
+
+                // 2. Crear un elemento temporal para forzar la descarga
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'video-generado.mp4'; // Intentamos nombrar como MP4 (el navegador manejará el codec interno)
+                document.body.appendChild(a);
+                a.click();
+
+                // 3. Limpieza
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+
+                // 4. Cerrar proceso
                 worker.terminate();
                 resolve();
             } else if (type === 'error') {
