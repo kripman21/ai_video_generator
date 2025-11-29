@@ -273,12 +273,35 @@ async function renderVideoMainThread(
 
         const seekVideo = (videoEl: any, time: number): Promise<void> => {
             return new Promise(resolve => {
-                // Optimización: Si ya estamos cerca del tiempo objetivo, no hacer seek
-                if (Math.abs(videoEl.currentTime - time) < 0.1) {
-                    resolve();
-                    return;
+                // 1. Si ya estamos en el tiempo (tolerancia pequeña), salir.
+                if (videoEl.readyState >= 2 && Math.abs(videoEl.currentTime - time) < 0.001) {
+                    return resolve();
                 }
-                videoEl.onseeked = () => resolve();
+
+                let isResolved = false;
+
+                // Función de finalización única para evitar llamadas dobles
+                const done = () => {
+                    if (isResolved) return;
+                    isResolved = true;
+                    videoEl.removeEventListener('seeked', onSeeked);
+                    resolve();
+                };
+
+                const onSeeked = () => {
+                    // Intentamos usar la API rápida, pero si falla o tarda, el timeout nos salvará
+                    if ('requestVideoFrameCallback' in videoEl) {
+                        videoEl.requestVideoFrameCallback(done);
+                    } else {
+                        requestAnimationFrame(done);
+                    }
+                };
+
+                // 2. Red de Seguridad: Si el navegador no avisa en 100ms, avanzamos a la fuerza.
+                // Esto es CRÍTICO para videos ocultos/offscreen.
+                setTimeout(done, 100);
+
+                videoEl.addEventListener('seeked', onSeeked, { once: true });
                 videoEl.currentTime = time;
             });
         };
@@ -438,6 +461,7 @@ async function renderVideoMainThread(
 
             const segmentFrames = Math.round(segment.duration / FRAME_DURATION_MS);
             for (let i = 0; i < segmentFrames; i++) {
+                const frameStart = performance.now();
                 timeInSegment = i * FRAME_DURATION_MS;
                 const progress = 20 + (currentTime / totalDuration) * 75;
                 onProgress(progress, `Renderizando... ${Math.round(currentTime / 1000)}s / ${Math.round(totalDuration / 1000)}s`);
@@ -492,6 +516,11 @@ async function renderVideoMainThread(
                 }
 
                 (videoTrack as any).requestFrame();
+
+                const processingTime = performance.now() - frameStart;
+                const delay = Math.max(0, FRAME_DURATION_MS - processingTime);
+                await new Promise(res => setTimeout(res, delay));
+
                 currentTime += FRAME_DURATION_MS;
             }
         }

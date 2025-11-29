@@ -1,4 +1,5 @@
 import { Scene, CoverSceneConfig, ClosingSceneConfig, SubtitleConfig, BackgroundMusic } from '../types';
+import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 import { MP4Demuxer } from '../utils/MP4Demuxer';
 import { buildTimeline, TimelineSegment, findBestVideoUrl } from '../utils/renderUtils';
 
@@ -28,6 +29,8 @@ const FRAME_DURATION_MS = 1000 / FRAME_RATE;
 
 let canvas: OffscreenCanvas | null = null;
 let ctx: OffscreenCanvasRenderingContext2D | null = null;
+let muxer: Muxer<ArrayBufferTarget> | null = null;
+let videoEncoder: VideoEncoder | null = null;
 let videoDecoder: VideoDecoder | null = null;
 let currentFrame: VideoFrame | null = null;
 
@@ -394,30 +397,47 @@ self.onmessage = async (event: MessageEvent<RenderMessage>) => {
             }
 
             // 4. Start Recording
-            const stream = canvas.captureStream(FRAME_RATE);
-            // Detectar si soporta MP4 (H.264), si no, caer a WebM (VP9)
-            const mp4Type = 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"';
-            const isMp4Supported = MediaRecorder.isTypeSupported(mp4Type);
-            const mimeType = isMp4Supported ? mp4Type : 'video/webm; codecs=vp9';
-            const fileExtension = isMp4Supported ? 'mp4' : 'webm';
+            // Configurar Muxer para MP4 (H.264)
+            muxer = new Muxer({
+                target: new ArrayBufferTarget(),
+                video: {
+                    codec: 'avc', // H.264 Advanced Video Coding
+                    width: WIDTH,
+                    height: HEIGHT
+                },
+                // Audio se agregará en la Fase 3, por ahora solo video
+                firstTimestampBehavior: 'offset',
+                fastStart: 'in-memory'
+            });
 
-            const mediaRecorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5000000 });
-            const chunks: Blob[] = [];
-            mediaRecorder.ondataavailable = (e) => e.data.size > 0 && chunks.push(e.data);
-            mediaRecorder.start();
+            // 1. Inicializar Encoder
+            videoEncoder = new VideoEncoder({
+                output: (chunk, meta) => muxer?.addVideoChunk(chunk, meta),
+                error: (e) => self.postMessage({ type: 'error', error: `Encoder Error: ${e.message}` })
+            });
+
+            // 2. Configurar Encoder (AJUSTE DE BITRATE)
+            videoEncoder.configure({
+                codec: 'avc1.42E01E',
+                width: WIDTH,
+                height: HEIGHT,
+                bitrate: 5000000 // 5 Mbps
+            });
 
             // 5. Render Loop
-            let currentTime = 0;
+            let frameIndex = 0;
+            const totalFrames = Math.ceil(totalDuration / FRAME_DURATION_MS);
 
             for (const segment of timeline) {
                 const segmentFrames = Math.round(segment.duration / FRAME_DURATION_MS);
 
                 for (let i = 0; i < segmentFrames; i++) {
-                    const timeInSegment = i * FRAME_DURATION_MS;
-                    const progress = 20 + (currentTime / totalDuration) * 80;
+                    const timeInSegment = i * FRAME_DURATION_MS; // ms for logic
+                    const timestamp = frameIndex * (1000000 / FRAME_RATE); // µs for encoder
 
-                    if (i % 10 === 0) {
-                        self.postMessage({ type: 'progress', progress: progress, message: `Renderizando... ${Math.round(currentTime / 1000)}s` });
+                    if (frameIndex % 30 === 0) {
+                        const progress = 20 + (frameIndex / totalFrames) * 80;
+                        self.postMessage({ type: 'progress', progress: progress, message: `Renderizando... ${Math.round(frameIndex / FRAME_RATE)}s` });
                     }
 
                     // Clear
@@ -436,8 +456,8 @@ self.onmessage = async (event: MessageEvent<RenderMessage>) => {
                         const frames = videoBuffer.get(videoUrl);
 
                         if (frames && frames.length > 0) {
-                            const frameIndex = Math.floor((timeInSegment / 1000) * 30);
-                            const frame = frames[Math.min(frameIndex, frames.length - 1)];
+                            const frameIndexInScene = Math.floor((timeInSegment / 1000) * 30);
+                            const frame = frames[Math.min(frameIndexInScene, frames.length - 1)];
 
                             if (frame) {
                                 const videoRatio = frame.displayWidth / frame.displayHeight;
@@ -453,19 +473,22 @@ self.onmessage = async (event: MessageEvent<RenderMessage>) => {
                         drawSubtitles(ctx, segment.scene, subtitleConfig);
                     }
 
-                    // Wait for next frame tick
-                    await new Promise(resolve => setTimeout(resolve, 0));
-                    currentTime += FRAME_DURATION_MS;
+                    // Encode Frame
+                    const videoFrame = new VideoFrame(canvas, { timestamp: timestamp });
+                    const isKeyFrame = frameIndex % 150 === 0 || frameIndex === 0;
+                    videoEncoder.encode(videoFrame, { keyFrame: isKeyFrame });
+                    videoFrame.close();
+
+                    frameIndex++;
                 }
             }
 
-            mediaRecorder.stop();
-            await new Promise(resolve => mediaRecorder.onstop = resolve);
-
-            const blob = new Blob(chunks, { type: mimeType });
+            await videoEncoder.flush();
+            muxer.finalize();
+            const { buffer } = muxer.target;
+            const blob = new Blob([buffer], { type: 'video/mp4' });
             const url = URL.createObjectURL(blob);
-
-            self.postMessage({ type: 'complete', url, extension: fileExtension });
+            self.postMessage({ type: 'complete', url, extension: 'mp4' });
 
             // Cleanup
             videoBuffer.forEach(frames => frames.forEach(f => f.close()));
