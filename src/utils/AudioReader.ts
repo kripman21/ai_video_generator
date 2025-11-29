@@ -7,8 +7,10 @@ export class AudioReader {
     private config: AudioDecoderConfig | null = null;
     private demuxer: MP4Demuxer;
     private isDecoding: boolean = false;
+    private statusCallback: ((status: string) => void) | undefined;
 
     constructor(uri: string, onStatus?: (status: string) => void) {
+        this.statusCallback = onStatus;
         this.demuxer = new MP4Demuxer(
             uri,
             (config) => {
@@ -18,7 +20,7 @@ export class AudioReader {
                 this.chunks.push(chunk as EncodedAudioChunk);
             },
             (status) => {
-                if (onStatus) onStatus(status);
+                if (this.statusCallback) this.statusCallback(status);
             },
             'audio'
         );
@@ -34,7 +36,9 @@ export class AudioReader {
                 output: (data) => {
                     this.samples.push(data);
                 },
-                error: (e) => console.error(`Audio Decoder Error: ${e.message}`)
+                error: (e) => {
+                    if (this.statusCallback) this.statusCallback(`Audio Decoder Error: ${e.message}`);
+                }
             });
             this.decoder.configure(this.config);
         }

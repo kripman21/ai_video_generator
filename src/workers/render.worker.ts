@@ -2,6 +2,8 @@ import { Scene, CoverSceneConfig, ClosingSceneConfig, SubtitleConfig, Background
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 import { VideoReader } from '../utils/VideoReader';
 import { buildTimeline, TimelineSegment, findBestVideoUrl } from '../utils/renderUtils';
+import { AudioReader } from '../utils/AudioReader';
+import { AudioMixer } from '../utils/AudioMixer';
 
 // 1. Global Error Handlers
 self.onerror = (e) => {
@@ -31,6 +33,7 @@ let canvas: OffscreenCanvas | null = null;
 let ctx: OffscreenCanvasRenderingContext2D | null = null;
 let muxer: Muxer<ArrayBufferTarget> | null = null;
 let videoEncoder: VideoEncoder | null = null;
+let audioEncoder: AudioEncoder | null = null;
 
 // Cache for loaded resources
 const imageCache = new Map<string, ImageBitmap>();
@@ -319,7 +322,6 @@ self.onmessage = async (event: MessageEvent<RenderMessage>) => {
 
             if (!totalDuration || isNaN(totalDuration)) {
                 self.postMessage({ type: 'log', message: "⚠️ Advertencia: Duración total incierta, usando valor estimado." });
-                // No lanzamos error para permitir que se genere al menos la portada/texto
             }
 
             // 4. Start Recording
@@ -331,7 +333,11 @@ self.onmessage = async (event: MessageEvent<RenderMessage>) => {
                     width: WIDTH,
                     height: HEIGHT
                 },
-                // Audio se agregará en la Fase 3, por ahora solo video
+                audio: {
+                    codec: 'aac',
+                    numberOfChannels: 1,
+                    sampleRate: 48000
+                },
                 firstTimestampBehavior: 'offset',
                 fastStart: 'in-memory'
             });
@@ -349,6 +355,64 @@ self.onmessage = async (event: MessageEvent<RenderMessage>) => {
                 height: HEIGHT,
                 bitrate: 5000000 // 5 Mbps
             });
+
+            audioEncoder = new AudioEncoder({
+                output: (chunk, meta) => muxer?.addAudioChunk(chunk, meta),
+                error: (e) => console.error("AudioEncoder error", e)
+            });
+            audioEncoder.configure({
+                codec: 'mp4a.40.2', // AAC LC
+                numberOfChannels: 1,
+                sampleRate: 48000,
+                bitrate: 128000
+            });
+
+            // --- INICIO AUDIO PIPELINE ---
+            self.postMessage({ type: 'progress', progress: 18, message: 'Mezclando audio...' });
+            const audioTracks = [];
+            let currentAudioTime = 0;
+
+            for (const segment of timeline) {
+                const segmentDuration = segment.duration / 1000; // seconds
+                const sceneStartTime = currentAudioTime;
+
+                if (segment.type === 'scene' && segment.scene) {
+                    const scene = segment.scene;
+                    // A. Audio del TTS (WAV)
+                    if (scene.audioUrl) {
+                        try {
+                            const response = await fetch(scene.audioUrl);
+                            const buffer = await response.arrayBuffer();
+                            // Simple WAV skip header (44 bytes) & Float conversion
+                            const pcmData = new Float32Array(new Int16Array(buffer.slice(44))).map(v => v / 32768.0);
+                            audioTracks.push({
+                                buffer: pcmData,
+                                startTime: sceneStartTime,
+                                volume: 1.0,
+                                sampleRate: 24000 // Gemini TTS suele ser 24kHz
+                            });
+                        } catch (e) { console.warn("Error cargando TTS", e); }
+                    }
+                }
+                currentAudioTime += segmentDuration;
+            }
+
+            // Mezcla Final
+            const mixedAudio = AudioMixer.mix(audioTracks, totalDuration / 1000, 48000);
+
+            // Codificación de Audio (Chunking)
+            const audioData = new AudioData({
+                format: 'f32',
+                sampleRate: 48000,
+                numberOfFrames: mixedAudio.length,
+                numberOfChannels: 1,
+                timestamp: 0,
+                data: mixedAudio as any
+            });
+            audioEncoder.encode(audioData);
+            audioData.close();
+            await audioEncoder.flush();
+            // --- FIN AUDIO PIPELINE ---
 
             // 5. Render Loop
             let frameIndex = 0;
