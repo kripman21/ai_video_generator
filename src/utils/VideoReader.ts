@@ -13,13 +13,14 @@ export class VideoReader {
         this.demuxer = new MP4Demuxer(
             uri,
             (config) => {
-                this.config = config;
+                this.config = config as VideoDecoderConfig;
                 // onStatus(`Video Configured: ${config.codec} ${config.codedWidth}x${config.codedHeight}`);
             },
             (chunk) => {
-                this.chunks.push(chunk);
+                this.chunks.push(chunk as EncodedVideoChunk);
             },
-            onStatus
+            onStatus,
+            'video'
         );
     }
 

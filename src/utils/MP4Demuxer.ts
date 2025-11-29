@@ -16,10 +16,16 @@ interface MP4File {
 
 export class MP4Demuxer {
     private file: MP4File;
-    private source: VideoDecoderConfig | null = null;
+    private source: VideoDecoderConfig | AudioDecoderConfig | null = null;
     private trackId: number | null = null;
 
-    constructor(uri: string, onConfig: (config: VideoDecoderConfig) => void, onChunk: (chunk: EncodedVideoChunk) => void, onStatus: (status: string) => void) {
+    constructor(
+        uri: string,
+        onConfig: (config: VideoDecoderConfig | AudioDecoderConfig) => void,
+        onChunk: (chunk: EncodedVideoChunk | EncodedAudioChunk) => void,
+        onStatus: (status: string) => void,
+        trackType: 'video' | 'audio' = 'video'
+    ) {
         this.file = MP4Box.createFile();
 
         this.file.onError = (module, message) => {
@@ -27,17 +33,23 @@ export class MP4Demuxer {
         };
 
         this.file.onReady = (info) => {
-            const track = info.videoTracks[0];
+            const track = trackType === 'video' ? info.videoTracks[0] : info.audioTracks[0];
             if (track) {
                 this.trackId = track.id;
 
-                // Construct VideoDecoderConfig
-                const config: VideoDecoderConfig = {
+                // Construct DecoderConfig
+                let config: any = {
                     codec: track.codec,
-                    codedHeight: track.video.height,
-                    codedWidth: track.video.width,
                     description: this.getDescription(track),
                 };
+
+                if (trackType === 'video') {
+                    config.codedWidth = track.video.width;
+                    config.codedHeight = track.video.height;
+                } else {
+                    config.numberOfChannels = track.audio.channel_count;
+                    config.sampleRate = track.audio.sample_rate;
+                }
 
                 this.source = config;
                 onConfig(config);
@@ -45,7 +57,7 @@ export class MP4Demuxer {
                 this.file.setExtractionOptions(track.id);
                 this.file.start();
             } else {
-                onStatus("No video track found");
+                onStatus(`No ${trackType} track found`);
             }
         };
 
@@ -53,12 +65,22 @@ export class MP4Demuxer {
             for (const sample of samples) {
                 const type = sample.is_sync ? 'key' : 'delta';
 
-                const chunk = new EncodedVideoChunk({
-                    type: type,
-                    timestamp: (1e6 * sample.cts) / sample.timescale,
-                    duration: (1e6 * sample.duration) / sample.timescale,
-                    data: sample.data,
-                });
+                let chunk;
+                if (trackType === 'video') {
+                    chunk = new EncodedVideoChunk({
+                        type: type,
+                        timestamp: (1e6 * sample.cts) / sample.timescale,
+                        duration: (1e6 * sample.duration) / sample.timescale,
+                        data: sample.data,
+                    });
+                } else {
+                    chunk = new EncodedAudioChunk({
+                        type: type,
+                        timestamp: (1e6 * sample.cts) / sample.timescale,
+                        duration: (1e6 * sample.duration) / sample.timescale,
+                        data: sample.data,
+                    });
+                }
 
                 onChunk(chunk);
             }
@@ -92,7 +114,7 @@ export class MP4Demuxer {
     private getDescription(track: any): Uint8Array {
         const trak = this.file.getTrackById(track.id);
         for (const entry of trak.mdia.minf.stbl.stsd.entries) {
-            const box = entry.avcC || entry.hvcC || entry.vpcC || entry.av1C;
+            const box = entry.avcC || entry.hvcC || entry.vpcC || entry.av1C || entry.esds;
             if (box) {
                 const stream = new MP4Box.DataStream(undefined, 0, (MP4Box.DataStream as any).BIG_ENDIAN);
                 box.write(stream);

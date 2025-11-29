@@ -1,6 +1,6 @@
 import { Scene, CoverSceneConfig, ClosingSceneConfig, SubtitleConfig, BackgroundMusic } from '../types';
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
-import { MP4Demuxer } from '../utils/MP4Demuxer';
+import { VideoReader } from '../utils/VideoReader';
 import { buildTimeline, TimelineSegment, findBestVideoUrl } from '../utils/renderUtils';
 
 // 1. Global Error Handlers
@@ -31,12 +31,10 @@ let canvas: OffscreenCanvas | null = null;
 let ctx: OffscreenCanvasRenderingContext2D | null = null;
 let muxer: Muxer<ArrayBufferTarget> | null = null;
 let videoEncoder: VideoEncoder | null = null;
-let videoDecoder: VideoDecoder | null = null;
-let currentFrame: VideoFrame | null = null;
 
 // Cache for loaded resources
 const imageCache = new Map<string, ImageBitmap>();
-const videoBuffer = new Map<string, VideoFrame[]>(); // Simple buffer for decoded frames
+const videoReaders = new Map<string, VideoReader>();
 
 // Helper to load images
 const loadImage = async (url: string): Promise<ImageBitmap | null> => {
@@ -48,70 +46,6 @@ const loadImage = async (url: string): Promise<ImageBitmap | null> => {
         console.error(`Failed to load image: ${url}`, e);
         return null;
     }
-};
-
-// Helper to decode video with Timeout Safety
-const decodeVideo = async (url: string, timeoutMs: number = 10000): Promise<VideoFrame[]> => {
-    const frames: VideoFrame[] = [];
-    let decoder: VideoDecoder | null = null;
-    let demuxer: any = null;
-
-    const decodeProcess = new Promise<void>((resolve, reject) => {
-        decoder = new VideoDecoder({
-            output: (frame) => frames.push(frame),
-            error: (e) => reject(new Error(`Decoder Error: ${e.message}`))
-        });
-
-        demuxer = new MP4Demuxer(url,
-            (config) => {
-                if (decoder?.state === 'configured' || decoder?.state === 'closed') return;
-                try {
-                    // Force hardware acceleration if possible, distinct check for supported configs could be added here
-                    decoder?.configure(config);
-                } catch (err) {
-                    reject(new Error(`Config Error: ${err}`));
-                }
-            },
-            (chunk) => {
-                try {
-                    decoder?.decode(chunk);
-                } catch (e) {
-                    console.warn("Chunk decode error", e);
-                }
-            },
-            (status) => {
-                // Log status but don't fail immediately on warnings
-                self.postMessage({ type: 'log', message: `⚠️ Demuxer: ${status}` });
-                if (status.includes('Error')) reject(new Error(status));
-            }
-        );
-
-        // Wait for buffer to fill or end. 
-        // In this simplified version, we rely on the timeout race below to stop listening.
-    });
-
-    // Race between decoding and a strict timeout
-    const timeoutPromise = new Promise<void>((_, reject) =>
-        setTimeout(() => reject(new Error(`Timeout: Video ${url.slice(-10)} tardó demasiado.`)), timeoutMs)
-    );
-
-    try {
-        // Wait for a reasonable amount of time to get frames, then force resolve to continue
-        await Promise.race([
-            decodeProcess,
-            new Promise(r => setTimeout(r, 6000)) // Artificial "Done" after 6s of downloading
-        ]);
-    } catch (e) {
-        self.postMessage({ type: 'log', message: `⚠️ Salteando video por error/timeout: ${e instanceof Error ? e.message : e}` });
-        // Return whatever frames we got (or empty), don't crash the worker
-    } finally {
-        if (decoder && decoder.state !== 'closed') {
-            await decoder.flush().catch(() => { });
-            decoder.close();
-        }
-    }
-
-    return frames;
 };
 
 
@@ -328,7 +262,6 @@ const drawSubtitles = (ctx: OffscreenCanvasRenderingContext2D, scene: Scene, sub
     ctx.restore();
 };
 
-
 self.onmessage = async (event: MessageEvent<RenderMessage>) => {
     if (event.data.type === 'start') {
         try {
@@ -368,28 +301,21 @@ self.onmessage = async (event: MessageEvent<RenderMessage>) => {
             const uniqueVideos = [...new Set(scenes.map(s => findBestVideoUrl(s.video)).filter(Boolean))];
 
             for (const url of uniqueVideos) {
-                self.postMessage({ type: 'log', message: `Intentando decodificar: ${url}` });
-                try {
-                    const frames = await decodeVideo(url, 5000); // Try to decode 5s buffer
-                    videoBuffer.set(url, frames);
-                    self.postMessage({ type: 'log', message: `✅ Decodificado: ${url} (${frames.length} frames)` });
-                } catch (e: any) {
-                    // CAMBIO CLAVE: Usamos 'log' en vez de 'error' para NO detener el proceso
-                    self.postMessage({ type: 'log', message: `⚠️ Saltando video corrupto/lento: ${url} (${e.message || e})` });
-                    // El bucle continúa al siguiente video automáticamente
-                }
+                self.postMessage({ type: 'log', message: `Iniciando lector para: ${url} ` });
+                const reader = new VideoReader(url, (status) => {
+                    // Opcional: retransmitir logs internos del reader si es necesario
+                    // self.postMessage({ type: 'log', message: `[Reader ${ url.slice(-5) }]: ${ status } ` });
+                });
+                videoReaders.set(url, reader);
             }
-
-            self.postMessage({ type: 'log', message: `Buffer de video: ${videoBuffer.size} videos cargados.` });
-            videoBuffer.forEach((frames, url) => {
-                self.postMessage({ type: 'log', message: `Video ${url.slice(-15)}: ${frames.length} frames decodificados.` });
-            });
+            // Damos un pequeño respiro para que empiecen a cargar headers
+            await new Promise(r => setTimeout(r, 1000));
 
             // 3. Build Timeline
             const timeline = buildTimeline(scenes, coverConfig, closingConfig);
             self.postMessage({ type: 'log', message: 'Timeline construida:', data: JSON.stringify(timeline) });
             const totalDuration = timeline.reduce((acc, seg) => acc + seg.duration, 0);
-            self.postMessage({ type: 'log', message: `Duración Total calculada: ${totalDuration}ms` });
+            self.postMessage({ type: 'log', message: `Duración Total calculada: ${totalDuration} ms` });
 
             if (!totalDuration || isNaN(totalDuration)) {
                 self.postMessage({ type: 'log', message: "⚠️ Advertencia: Duración total incierta, usando valor estimado." });
@@ -413,12 +339,12 @@ self.onmessage = async (event: MessageEvent<RenderMessage>) => {
             // 1. Inicializar Encoder
             videoEncoder = new VideoEncoder({
                 output: (chunk, meta) => muxer?.addVideoChunk(chunk, meta),
-                error: (e) => self.postMessage({ type: 'error', error: `Encoder Error: ${e.message}` })
+                error: (e) => self.postMessage({ type: 'error', error: `Encoder Error: ${e.message} ` })
             });
 
             // 2. Configurar Encoder (AJUSTE DE BITRATE)
             videoEncoder.configure({
-                codec: 'avc1.42E01E',
+                codec: 'avc1.4D002A', // Main Profile, Level 4.2 (Supports 1080p)
                 width: WIDTH,
                 height: HEIGHT,
                 bitrate: 5000000 // 5 Mbps
@@ -437,7 +363,7 @@ self.onmessage = async (event: MessageEvent<RenderMessage>) => {
 
                     if (frameIndex % 30 === 0) {
                         const progress = 20 + (frameIndex / totalFrames) * 80;
-                        self.postMessage({ type: 'progress', progress: progress, message: `Renderizando... ${Math.round(frameIndex / FRAME_RATE)}s` });
+                        self.postMessage({ type: 'progress', progress: progress, message: `Renderizando... ${Math.round(frameIndex / FRAME_RATE)} s` });
                     }
 
                     // Clear
@@ -452,14 +378,14 @@ self.onmessage = async (event: MessageEvent<RenderMessage>) => {
                         const logo = closingConfig.logoUrl ? imageCache.get(closingConfig.logoUrl) || null : null;
                         drawSceneOverlay(ctx, closingConfig, subtitleConfig, logo);
                     } else if (segment.type === 'scene' && segment.scene) {
-                        const videoUrl = findBestVideoUrl(segment.scene.video);
-                        const frames = videoBuffer.get(videoUrl);
+                        const reader = videoReaders.get(findBestVideoUrl(segment.scene.video));
 
-                        if (frames && frames.length > 0) {
-                            const frameIndexInScene = Math.floor((timeInSegment / 1000) * 30);
-                            const frame = frames[Math.min(frameIndexInScene, frames.length - 1)];
+                        if (reader) {
+                            // El reader se encarga de buscar, decodificar y gestionar memoria
+                            const frame = await reader.getFrame(timeInSegment / 1000);
 
                             if (frame) {
+                                // Lógica de dibujo (copy-paste de lo que tenías)
                                 const videoRatio = frame.displayWidth / frame.displayHeight;
                                 const canvasRatio = WIDTH / HEIGHT;
                                 let w = WIDTH, h = HEIGHT, x = 0, y = 0;
@@ -467,6 +393,9 @@ self.onmessage = async (event: MessageEvent<RenderMessage>) => {
                                 else { w = h * videoRatio; x = (WIDTH - w) / 2; }
 
                                 ctx.drawImage(frame, x, y, w, h);
+
+                                // CRÍTICO: Cerrar el frame clonado que nos dio el reader
+                                frame.close();
                             }
                         }
 
@@ -491,10 +420,10 @@ self.onmessage = async (event: MessageEvent<RenderMessage>) => {
             self.postMessage({ type: 'complete', url, extension: 'mp4' });
 
             // Cleanup
-            videoBuffer.forEach(frames => frames.forEach(f => f.close()));
-            videoBuffer.clear();
+            videoReaders.forEach(reader => reader.close());
+            videoReaders.clear();
         } catch (err) {
-            self.postMessage({ type: 'error', error: `Render Logic Crash: ${err instanceof Error ? err.message : String(err)}` });
+            self.postMessage({ type: 'error', error: `Render Logic Crash: ${err instanceof Error ? err.message : String(err)} ` });
         }
     }
 };
